@@ -4,11 +4,13 @@
 #
 #   bash scripts/check-gate.sh
 #
-# Self-healing prerequisites: when cargo came from rustup, the rustfmt
-# component and the Linux compile-check target are installed on demand, so the
-# gate passes on a fresh toolchain instead of failing with "component
-# 'rustfmt' is not installed". With a non-rustup toolchain the gate still runs;
-# the Linux-branch checks are skipped with a warning if the target is missing.
+# Self-healing prerequisites: when cargo came from rustup, the rustfmt and
+# clippy components and the Linux compile-check target are installed on
+# demand, so the gate passes on a fresh toolchain (including a rustup
+# --profile minimal install, which ships neither component) instead of
+# failing with "component X is not installed". With a non-rustup toolchain
+# the gate still runs; the Linux-branch checks are skipped with a warning if
+# the target is missing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,11 +24,11 @@ command -v cargo >/dev/null 2>&1 || {
 command -v rustc >/dev/null 2>&1 || { echo "error: rustc not found." >&2; exit 1; }
 [ -f Cargo.toml ] || { echo "error: run this from the sysview source tree." >&2; exit 1; }
 
-# The rustfmt gate needs the rustfmt component; install it (best-effort) when
-# rustup is present so a virgin toolchain doesn't fail the gate.
+# The fmt and clippy gates need their components; install both (best-effort)
+# when rustup is present so a virgin toolchain doesn't fail the gate.
 if command -v rustup >/dev/null 2>&1; then
-    echo ">> ensuring rustfmt component..."
-    rustup component add rustfmt >/dev/null 2>&1 || true
+    echo ">> ensuring rustfmt and clippy components..."
+    rustup component add rustfmt clippy >/dev/null 2>&1 || true
     # The Linux branch is validated by cross-target check/clippy; make sure
     # the target is installed too (a no-op when already present).
     rustup target add x86_64-unknown-linux-gnu >/dev/null 2>&1 || true
@@ -35,6 +37,12 @@ if ! cargo fmt --version >/dev/null 2>&1; then
     echo "error: the 'cargo fmt' command is unavailable." >&2
     echo "  install the rustfmt component:" >&2
     echo "    rustup component add rustfmt" >&2
+    exit 1
+fi
+if ! cargo clippy --version >/dev/null 2>&1; then
+    echo "error: the 'cargo clippy' command is unavailable." >&2
+    echo "  install the clippy component:" >&2
+    echo "    rustup component add clippy" >&2
     exit 1
 fi
 
