@@ -1,0 +1,4 @@
+# Shell scripts stay LF on every platform: a Windows checkout would otherwise
+# rewrite them as CRLF, which breaks `bash scripts/*.sh` both locally (WSL)
+# and after copying the files to a Linux host.
+*.sh text eol=lf
