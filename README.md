@@ -420,6 +420,14 @@ cargo build --release             # production binary (single file)
 bash scripts/build-linux.sh --static            # fully static musl release (see README, Debian section)
 ```
 
+> Publishing a release: push a tag and the [release workflow](.github/workflows/release.yml)
+> builds and attaches the precompiled binaries (Windows, Linux musl-static, macOS
+> universal) plus checksums to the GitHub Release:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
 or use `--port` for an ad-hoc check. The startup banner prints the URL, sample
 interval and any token — useful in the systemd journal.
