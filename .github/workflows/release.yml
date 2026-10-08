@@ -1,0 +1,101 @@
+name: release-binaries
+
+# Publish precompiled binaries for Windows, Linux and macOS to a GitHub
+# Release whenever a tag like v0.1.0 is pushed:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The Linux artifact is a fully static musl build: one binary that runs on
+# every distro (Debian, Ubuntu, RHEL, Alpine, headless servers included) with
+# no runtime dependencies. macOS ships a universal binary (Intel + Apple
+# Silicon). No Docker, no extra tooling is required of users — the archive on
+# the Release page is the whole tool.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # The artifacts are only published when the full suite is green on all three
+  # operating systems.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt -- --check
+      - run: cargo test --locked
+      - run: cargo clippy --all-targets -- -D warnings
+
+  build-linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - run: cp target/x86_64-unknown-linux-musl/release/sysview sysview-linux-x86_64-musl
+      - run: file sysview-linux-x86_64-musl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: sysview-linux-x86_64-musl
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - run: copy target\release\sysview.exe sysview-windows-x86_64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: sysview-windows-x86_64.exe
+
+  build-macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - run: cargo build --release --locked --target aarch64-apple-darwin
+      - run: cargo build --release --locked --target x86_64-apple-darwin
+      - run: lipo -create -output sysview-mac-universal target/aarch64-apple-darwin/release/sysview target/x86_64-apple-darwin/release/sysview
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: sysview-mac-universal
+
+  release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: |
+          mv artifacts/linux/sysview-linux-x86_64-musl .
+          mv artifacts/windows/sysview-windows-x86_64.exe .
+          mv artifacts/macos/sysview-mac-universal .
+          sha256sum sysview-linux-x86_64-musl sysview-windows-x86_64.exe sysview-mac-universal > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sysview-linux-x86_64-musl
+            sysview-windows-x86_64.exe
+            sysview-mac-universal
+            SHA256SUMS
+          generate_release_notes: true

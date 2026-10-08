@@ -16,26 +16,55 @@ src/                Rust source
   serve.rs          HTTP server, sampler thread, history ring, /metrics
 web/dashboard.html  embedded ES5 dashboard (include_str!, no build step)
 scripts/            build-linux.sh · setup-debian.sh (Debian/systemd)
-dist/               prebuilt static Linux release (sysview-linux-x86_64)
+dist/               build-linux.sh output goes here; prebuilt binaries ship
+                    via GitHub Releases (Windows / Linux / macOS)
 docs/               architecture & design notes
 ```
 
 ## Install
 
-Clone this repo and build:
+sysview ships as **one self-contained binary**. Nothing else needs to be
+installed to run it — no runtime, no libraries, no Node, no Python. On Linux
+the prebuilt binary is fully static (musl), so the exact same file runs on any
+distro — Debian, Ubuntu, RHEL, Alpine — headless servers included. Rust is
+required **only** if you build from source, and can be uninstalled afterwards;
+the compiled binary never needs it again.
 
-```powershell
-# Windows (PowerShell)
-cd G:\rust-system-stats-viewer-cli
-$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
-cargo build --release
-```
+**Option 1 — precompiled binary (recommended, no Rust needed).** Download your
+platform's file from the [Releases] page and run it directly:
+
+| Platform | File |
+|---|---|
+| Windows | `sysview-windows-x86_64.exe` |
+| Linux (any distro, incl. servers) | `sysview-linux-x86_64-musl` (fully static) |
+| macOS (Intel + Apple Silicon) | `sysview-mac-universal` |
 
 ```bash
-# Linux/macOS
-cargo build --release
-./target/release/sysview
+# Linux / macOS
+chmod +x sysview-linux-x86_64-musl
+./sysview-linux-x86_64-musl
 ```
+
+Verify the checksums in `SHA256SUMS` on the Release page before running.
+
+**Option 2 — build from source (Rust is build-time only).** The produced
+binary is identical in kind to the prebuilt one and needs no Rust to run:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+git clone https://github.com/OCEANOFANYTHING/sysview.git && cd sysview
+cargo build --release          # Windows: same command, target\release\sysview.exe
+./target/release/sysview       # runs on its own — no Rust needed at runtime
+# optional: rustup self uninstall -y     # remove the toolchain; the binary keeps working
+```
+
+Only the build needs Rust; the deployed artifact is just `sysview`. There is no
+second install step, no shared library to keep in sync, and nothing to leave
+behind when you uninstall the toolchain — on a lean server, build, copy the
+binary, remove Rust.
+
+[Releases]: https://github.com/OCEANOFANYTHING/sysview/releases
 
 ## Usage
 
@@ -103,13 +132,14 @@ separate process) that serves a live, dark-theme monitoring page:
   they connect (nothing "starts over" on refresh).
 - **Idle-friendly:** sampling runs only while at least one dashboard is open
   (plus a short grace period for reloads). With zero viewers the server drops
-  its sampling state and sits at near-zero memory (≈7 MB private, measured on
-  a 16-core Windows host) until someone connects again; the shared history
+  its sampling state and sits at near-zero memory (≈4 MB private, measured on a
+  headless Debian 13 server — the exact figure varies by platform) until
+  someone connects again; the shared history
   window — including the per-core and per-mount rings — is preserved across
   idle periods. Even while active it stays lean: process sampling deliberately
   never fetches command lines, environments or executables (sysinfo otherwise
   retains those per-process strings for the whole session), so a live dashboard
-  tops out at roughly 1 MB over idle. Memory stays bounded in the remaining
+  tops out at well under 1 MB over idle. Memory stays bounded in the remaining
   dimensions too: each connection handler runs on a small 256 KiB stack (head
   parsing and response writes are shallow; even the /metrics JSON decode is
   bounded-depth), so all 64 slots commit at most ~16 MiB of thread stacks, and
@@ -180,9 +210,11 @@ The serve path is tuned to run continuously on Linux servers:
   same cadence as everything else, but into a single reused `Components`
   object — no fresh sysfs walk + label allocations per poll.
 - **Pauses itself.** With no viewer for 30 s the sampler is dropped and the
-  process returns to near-idle (≈7 MB private RSS on a typical box); command
-  lines/environments are never held, so active-session overhead stays around
-  1 MB regardless of how long it runs. On a headless server use
+  process returns to near-idle (≈4 MB private RSS, measured on a headless
+  Debian 13 server — idle figures on other platforms are in the same low-MB
+  range); command lines/environments are never held, so active-session
+  overhead stays at or under ~1 MB regardless of how long it runs (≈0.2 MB on
+  the Debian test box). On a headless server use
   `--interval 3` to cut per-second `/proc` walks by two thirds.
 
 ```bash
@@ -221,15 +253,16 @@ or Wi-Fi at 1–2 s refresh.
 
 ## Debian / headless server setup (SSH)
 
-The repo ships a fully static Linux binary (`dist/sysview-linux-x86_64`, musl —
-no glibc dependency, runs on any distro) plus two scripts: build
+Prebuilt binaries are published on the [Releases] page; the Linux build is
+fully static (musl — no glibc dependency, runs on any distro), so that exact
+file is what you deploy on a server. The repo also ships two scripts: build
 (`scripts/build-linux.sh`) and install (`scripts/setup-debian.sh`). A complete
 headless install over SSH is three commands:
 
 ```bash
-# from your workstation
-scp dist/sysview-linux-x86_64 scripts/setup-debian.sh root@server:/tmp/
-ssh root@server 'bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64'
+# from your workstation (download sysview-linux-x86_64-musl + setup-debian.sh first)
+scp sysview-linux-x86_64-musl scripts/setup-debian.sh root@server:/tmp/
+ssh root@server 'bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64-musl'
 ```
 
 The installer puts `sysview` in `/usr/local/bin`, generates an access token
@@ -245,7 +278,7 @@ network entirely, confirm that or pass `BIND=127.0.0.1` explicitly, then
 forward it:
 
 ```bash
-BIND=127.0.0.1 bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64
+BIND=127.0.0.1 bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64-musl
 # on your workstation, keep this running:
 ssh -N -L 8080:127.0.0.1:8080 user@server
 # then open http://localhost:8080/?token=<secret>
@@ -266,6 +299,13 @@ sudo bash scripts/setup-debian.sh dist/sysview-linux-x86_64-musl
 Either needs a recent toolchain: the locked `sysinfo` requires rustc ≥ 1.95,
 which Debian's stock compiler is behind (bookworm ships 1.63, trixie 1.85) —
 use rustup as shown.
+
+Rust is **build-time only**. Once `setup-debian.sh` has installed and started
+the service from the built binary, neither the service nor reboots ever touch
+Rust again — `rustup self uninstall -y` (and, if you like, removing the distro
+`rustc`/`cargo` packages afterwards) is safe; the dashboard keeps running from
+`/usr/local/bin/sysview`. This is the intended lean-server flow: install Rust,
+compile, hand the binary to the service, uninstall Rust.
 
 ### Manual background run (no systemd)
 
