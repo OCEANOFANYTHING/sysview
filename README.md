@@ -263,8 +263,9 @@ sudo bash scripts/setup-debian.sh dist/sysview-linux-x86_64-musl
 ```
 
 `--static` links musl for a self-contained binary (default builds glibc).
-Either needs Rust ≥ 1.74 (Debian bookworm's stock `cargo` is too old — use
-rustup as shown).
+Either needs a recent toolchain: the locked `sysinfo` requires rustc ≥ 1.95,
+which Debian's stock compiler is behind (bookworm ships 1.63, trixie 1.85) —
+use rustup as shown.
 
 ### Manual background run (no systemd)
 

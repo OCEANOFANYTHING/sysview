@@ -8,8 +8,8 @@
 #               Rust target (rustup target add x86_64-unknown-linux-musl).
 #   --install   copy the result to /usr/local/bin/sysview (needs root)
 #
-# Requires cargo (Rust >= 1.74; Debian bookworm's stock cargo is too old,
-# install via rustup):
+# Requires cargo with a recent toolchain (the locked sysinfo needs rustc
+# >= 1.95; Debian's stock compiler is behind — install via rustup):
 #   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 set -euo pipefail
 cd "$(dirname "$0")/.."

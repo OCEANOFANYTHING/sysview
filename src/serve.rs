@@ -1615,35 +1615,18 @@ mod tests {
         Some((p + 4, cl, head))
     }
 
-    /// Reads exactly one HTTP response (head + body per Content-Length) off a
-    /// possibly persistent connection, leaving any pipelined tail buffered for
-    /// the next call.
-    fn read_one_response(stream: &mut TcpStream) -> HttpResponse {
-        let mut buf: Vec<u8> = Vec::new();
-        let (body_start, content_length, head) = loop {
-            if let Some(parsed) = parse_head(&buf) {
-                break parsed;
-            }
-            let mut chunk = [0u8; 8192];
-            let n = stream
-                .read(&mut chunk)
-                .unwrap_or_else(|e| panic!("read failed while reading response head: {e}"));
-            if n == 0 {
-                panic!("connection closed mid-response head");
-            }
-            buf.extend_from_slice(&chunk[..n]);
-        };
-        while buf.len() < body_start + content_length {
-            let mut chunk = [0u8; 8192];
-            let n = stream
-                .read(&mut chunk)
-                .unwrap_or_else(|e| panic!("read failed while reading response body: {e}"));
-            if n == 0 {
-                panic!("connection closed mid-response body");
-            }
-            buf.extend_from_slice(&chunk[..n]);
+    /// Parses the first complete HTTP response out of `buf`, returning it
+    /// together with whatever trailing bytes follow it. `None` when `buf`
+    /// holds only part of a response (a head without a terminator, or a body
+    /// that isn't fully buffered yet). Shared by the single-response reader
+    /// and the pipelined reader, so both slice responses identically.
+    fn try_split_response(buf: &[u8]) -> Option<(HttpResponse, Vec<u8>)> {
+        let (body_start, content_length, head) = parse_head(buf)?;
+        let end = body_start + content_length;
+        if buf.len() < end {
+            return None;
         }
-        let body = buf[body_start..body_start + content_length].to_vec();
+        let body = buf[body_start..end].to_vec();
         let status = head
             .lines()
             .next()
@@ -1662,10 +1645,33 @@ mod tests {
                 Some((k, v))
             })
             .collect();
-        HttpResponse {
-            status,
-            headers,
-            body,
+        Some((
+            HttpResponse {
+                status,
+                headers,
+                body,
+            },
+            buf[end..].to_vec(),
+        ))
+    }
+
+    /// Reads one HTTP/1.1 response (head + body per Content-Length) from a
+    /// connection. For a single response per connection: a socket read may
+    /// return bytes beyond this response, and those are discarded here.
+    /// Pipelined keep-alive traffic must use [`PipelinedReader`], which
+    /// retains the residue for the next response.
+    fn read_one_response(stream: &mut TcpStream) -> HttpResponse {
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            if let Some((resp, _)) = try_split_response(&buf) {
+                return resp;
+            }
+            let mut chunk = [0u8; 8192];
+            let n = stream
+                .read(&mut chunk)
+                .unwrap_or_else(|e| panic!("read failed while reading response: {e}"));
+            assert!(n > 0, "connection closed mid-response");
+            buf.extend_from_slice(&chunk[..n]);
         }
     }
 
@@ -1673,18 +1679,10 @@ mod tests {
     /// closed by the server; returns `None` on EOF or timeout.
     fn try_read_one_response(stream: &mut TcpStream) -> Option<HttpResponse> {
         let mut buf: Vec<u8> = Vec::new();
-        let (body_start, content_length) = loop {
-            if let Some((bs, cl, _)) = parse_head(&buf) {
-                break (bs, cl);
+        loop {
+            if let Some((resp, _)) = try_split_response(&buf) {
+                return Some(resp);
             }
-            let mut chunk = [0u8; 8192];
-            match stream.read(&mut chunk) {
-                Ok(0) => return None,
-                Ok(n) => buf.extend_from_slice(&chunk[..n]),
-                Err(_) => return None,
-            }
-        };
-        while buf.len() < body_start + content_length {
             let mut chunk = [0u8; 8192];
             match stream.read(&mut chunk) {
                 Ok(0) => return None,
@@ -1692,21 +1690,40 @@ mod tests {
                 Err(_) => return None,
             }
         }
-        let body = buf[body_start..body_start + content_length].to_vec();
-        let head = String::from_utf8_lossy(&buf[..body_start]);
-        let status = head
-            .lines()
-            .next()
-            .unwrap_or("")
-            .split_whitespace()
-            .nth(1)
-            .and_then(|s| s.parse::<u16>().ok())
-            .unwrap_or(0);
-        Some(HttpResponse {
-            status,
-            headers: Vec::new(),
-            body,
-        })
+    }
+
+    /// Reads multiple keep-alive responses off a single socket. A socket read
+    /// can return several pipelined responses in one chunk, so the residue
+    /// beyond the just-parsed response is retained for the next
+    /// [`next`](Self::next) call instead of being dropped.
+    struct PipelinedReader {
+        stream: TcpStream,
+        pending: Vec<u8>,
+    }
+
+    impl PipelinedReader {
+        fn new(stream: TcpStream) -> Self {
+            Self {
+                stream,
+                pending: Vec::new(),
+            }
+        }
+
+        fn next(&mut self) -> HttpResponse {
+            loop {
+                if let Some((resp, leftover)) = try_split_response(&self.pending) {
+                    self.pending = leftover;
+                    return resp;
+                }
+                let mut chunk = [0u8; 8192];
+                let n = self
+                    .stream
+                    .read(&mut chunk)
+                    .unwrap_or_else(|e| panic!("read failed while reading response: {e}"));
+                assert!(n > 0, "connection closed mid-response");
+                self.pending.extend_from_slice(&chunk[..n]);
+            }
+        }
     }
 
     fn http_get(addr: SocketAddr, target: &str) -> HttpResponse {
@@ -2258,35 +2275,45 @@ mod tests {
         let (addr, server, _stop, _accept) = start_test_server(None);
         wait_for_payload(addr, &server, None, "first payload");
 
-        let mut s = tcp_connect(addr);
-        // Two pipelined keep-alive requests in one write.
-        s.write_all(
-            b"GET /health HTTP/1.1\r\nHost: t\r\n\r\nGET /metrics HTTP/1.1\r\nHost: t\r\n\r\n",
-        )
-        .unwrap();
-        s.flush().unwrap();
-        let r1 = read_one_response(&mut s);
+        // Two pipelined keep-alive requests in one write. A socket read can
+        // return both responses in a single chunk, so read them through the
+        // residue-preserving reader (the naive per-response read would drop
+        // the bytes it over-read and misparse the second response — exactly
+        // what happened on Linux, where reads coalesce).
+        let mut reader = PipelinedReader::new(tcp_connect(addr));
+        reader
+            .stream
+            .write_all(
+                b"GET /health HTTP/1.1\r\nHost: t\r\n\r\nGET /metrics HTTP/1.1\r\nHost: t\r\n\r\n",
+            )
+            .unwrap();
+        reader.stream.flush().unwrap();
+        let r1 = reader.next();
         assert_eq!(r1.status, 200);
         assert_eq!(r1.header("connection"), Some("keep-alive"));
         assert_eq!(r1.body, b"{\"ok\":true}");
-        let r2 = read_one_response(&mut s);
+        let r2 = reader.next();
         assert_eq!(r2.status, 200);
         assert!(r2.body.windows(8).any(|w| w == &b"sysview_"[..]));
 
         // A third request on the same socket confirms the connection stayed up.
-        let mut s = s;
-        s.write_all(b"GET /health HTTP/1.1\r\nHost: t\r\n\r\n")
+        reader
+            .stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: t\r\n\r\n")
             .unwrap();
-        s.flush().unwrap();
-        let r3 = read_one_response(&mut s);
+        reader.stream.flush().unwrap();
+        let r3 = reader.next();
         assert_eq!(r3.status, 200);
 
         // Connection: close terminates the connection after one final response.
-        s.write_all(b"GET /health HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n")
+        reader
+            .stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n")
             .unwrap();
-        s.flush().unwrap();
-        let r4 = read_one_response(&mut s);
+        reader.stream.flush().unwrap();
+        let r4 = reader.next();
         assert_eq!(r4.status, 200);
+        let mut s = reader.stream;
         let mut byte = [0u8; 1];
         let n = s.read(&mut byte).unwrap_or(0);
         assert_eq!(n, 0, "server should close after Connection: close");
