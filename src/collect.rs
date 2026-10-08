@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::thread;
 
 use sysinfo::{
-    Components, Disks, Networks, Process, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind,
-    Users, MINIMUM_CPU_UPDATE_INTERVAL,
+    Components, Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, Process, ProcessRefreshKind,
+    ProcessesToUpdate, System, UpdateKind, Users,
 };
 
-use crate::{Cli, SortKey};
 use crate::model::*;
+use crate::{Cli, SortKey};
 
 /// Number of samples the embedded dashboard keeps per metric. This is the
 /// shared, server-side history window: every client sees the same 240 points.
@@ -259,7 +259,8 @@ impl WebState {
         // Light passes: CPU + process usage + memory + thread counts. No
         // cmdline/exe/env walk, which keeps even busy servers cheap to poll.
         self.sys.refresh_cpu_all();
-        self.sys.refresh_processes_specifics(ProcessesToUpdate::All, true, lean_process_kind());
+        self.sys
+            .refresh_processes_specifics(ProcessesToUpdate::All, true, lean_process_kind());
         self.sys.refresh_memory();
         self.nets.refresh(true);
         self.disks.refresh(true);
@@ -417,18 +418,10 @@ fn sample_cpu_and_processes(sys: &mut System) {
 /// biggest lean win available, with no behavior change.
 fn warmup_snapshot(sys: &mut System) {
     sys.refresh_cpu_all();
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::All,
-        true,
-        lean_process_kind(),
-    );
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, lean_process_kind());
     thread::sleep(MINIMUM_CPU_UPDATE_INTERVAL);
     sys.refresh_cpu_all();
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::All,
-        true,
-        lean_process_kind(),
-    );
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, lean_process_kind());
 }
 
 /// Process refresh kind for dashboard sampling: enough for everything the
@@ -553,7 +546,11 @@ fn build_memory(sys: &System) -> MemoryInfo {
     }
 }
 
-fn build_processes(sys: &System, cli: &Cli, uid_names: &HashMap<String, String>) -> Vec<ProcessInfo> {
+fn build_processes(
+    sys: &System,
+    cli: &Cli,
+    uid_names: &HashMap<String, String>,
+) -> Vec<ProcessInfo> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -630,11 +627,7 @@ fn build_processes(sys: &System, cli: &Cli, uid_names: &HashMap<String, String>)
             SortKey::Uptime => b.uptime_secs.cmp(&a.uptime_secs),
             SortKey::Starttime => b.start_time_secs.cmp(&a.start_time_secs),
         };
-        if reverse {
-            ord.reverse()
-        } else {
-            ord
-        }
+        if reverse { ord.reverse() } else { ord }
     });
 
     procs.truncate(cli.top.max(1));
@@ -675,6 +668,10 @@ mod tests {
         // carries a real percentage, not a zero.
         let mut st = WebState::new(20);
         let s = st.snapshot();
-        assert!((0.0..=100.0).contains(&s.cpu.usage), "cpu usage out of range: {}", s.cpu.usage);
+        assert!(
+            (0.0..=100.0).contains(&s.cpu.usage),
+            "cpu usage out of range: {}",
+            s.cpu.usage
+        );
     }
 }

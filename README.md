@@ -109,7 +109,12 @@ separate process) that serves a live, dark-theme monitoring page:
   idle periods. Even while active it stays lean: process sampling deliberately
   never fetches command lines, environments or executables (sysinfo otherwise
   retains those per-process strings for the whole session), so a live dashboard
-  tops out at roughly 1 MB over idle.
+  tops out at roughly 1 MB over idle. Memory stays bounded in the remaining
+  dimensions too: each connection handler runs on a small 256 KiB stack (head
+  parsing and response writes are shallow; even the /metrics JSON decode is
+  bounded-depth), so all 64 slots commit at most ~16 MiB of thread stacks, and
+  the sampler reuses its serialized-payload buffer across ticks instead of
+  reallocating per sample.
 - Sortable/filterable process table (click a header, or type in the filter).
 - Kiosk / full-screen mode for wall displays: open
   `http://host:8080/?kiosk=1`, or press `K` on the page. `--kiosk` starts
@@ -198,12 +203,21 @@ Each snapshot now also carries the per-core and per-disk rings, so a full
 payload is around 60–85 KB on an average 16-core host — still fine over LAN
 or Wi-Fi at 1–2 s refresh.
 
-> **Security:** the server binds to **loopback only** by default. To expose it
-> on the network you must pass `--bind 0.0.0.0`, and you should then set
-> `--token <secret>` and open `http://host:8080/?token=<secret>` on your
-> displays (the token can also be sent as an `Authorization: Bearer` header by
-> scripts). Without a token, anyone who can reach the port can read live
-> system stats — process names, owners, CPU/RAM/disk usage, network traffic.
+> **Security — two ways to expose the dashboard.** The server binds to
+> **loopback only** by default, so by itself it is not reachable from the
+> network:
+>
+> | Access model | How | Remote reach |
+> |---|---|---|
+> | **Loopback + SSH tunnel** (default) | `sysview serve` (binds `127.0.0.1`); on the laptop keep `ssh -N -L 8080:127.0.0.1:8080 user@server` running | Only inside the encrypted tunnel — no port is open on the server at all. Best when you are the only viewer. |
+> | **All interfaces + firewall + token** | `sysview serve --bind 0.0.0.0 --token <secret>`; allow the chosen port through a host firewall (`ufw allow 8080/tcp`) | Anyone allowed by the firewall can reach the port, but only with the token via `?token=<secret>` or an `Authorization: Bearer` header. Use when wall displays / several machines need direct access. |
+>
+> The `--token` gate applies to **every** endpoint (`/`, `/api/snapshot`,
+> `/metrics`, `/health`, favicon included) with a constant-time compare, and
+> applies equally in both models. Without a token on a non-loopback bind,
+> anyone who can reach the port can read live system stats — process names,
+> owners, CPU/RAM/disk usage, network traffic — so loopback is the safe
+> default and `0.0.0.0` is the explicit, documented choice.
 
 ## Debian / headless server setup (SSH)
 
@@ -220,13 +234,15 @@ ssh root@server 'bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64'
 
 The installer puts `sysview` in `/usr/local/bin`, generates an access token
 (persisted in `/etc/sysview/env`), and enables a hardened systemd service with
-restart-on-failure. It finishes by printing the dashboard URL, e.g.
-`http://0.0.0.0:8080/?token=<secret>` — open it from your dashboard machine
-with that token (it is required).
+restart-on-failure. Like the CLI, it defaults to loopback (`BIND=127.0.0.1`),
+so the printed URL is local: reach it over an SSH tunnel, or rerun with
+`BIND=0.0.0.0` to expose it on the LAN (the token is always required).
 
 ### SSH tunnel instead of an open port
 
-To keep the port closed to the network entirely, bind loopback and forward it:
+Loopback binding is the installer's default; to keep the port closed to the
+network entirely, confirm that or pass `BIND=127.0.0.1` explicitly, then
+forward it:
 
 ```bash
 BIND=127.0.0.1 bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64
@@ -272,7 +288,7 @@ Env vars read by `setup-debian.sh`:
 
 | Var | Default | Meaning |
 |---|---|---|
-| `BIND` | `0.0.0.0` | listen address (`127.0.0.1` = tunnel only) |
+| `BIND` | `127.0.0.1` | listen address (`0.0.0.0` = expose on the LAN; keep the token + firewall) |
 | `PORT` | `8080` | listen port (keep ≥ 1024; the service runs unprivileged) |
 | `INTERVAL` | `1` | server sampling seconds (`3` = lighter 24/7 load) |
 | `MAX_PROCS` | `100` | dashboard process rows |
@@ -289,10 +305,18 @@ sudo bash /tmp/setup-debian.sh --uninstall   # stop + remove everything
 ```
 
 The unit runs as a throwaway unprivileged user (`DynamicUser`), with
-`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp` and
-`Restart=on-failure` (`systemd-analyze security sysview` will confirm). If a
-host firewall is enabled, allow the port only for the non-loopback mode:
-`ufw allow 8080/tcp`. The static release's SHA-256 is
+`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
+`ProtectKernel{Tunables,Modules,Logs}`, `ProtectControlGroups`,
+`ProtectHostname`, `RestrictSUIDSGID`, `LockPersonality`,
+`RestrictNamespaces`, `RestrictRealtime` and `Restart=on-failure`
+(`systemd-analyze security sysview` will confirm). Two hardening keys are
+deliberately **not** set (see the comments in `scripts/setup-debian.sh`):
+`ProcSubset=pid` would hide `/proc/meminfo`, `/proc/stat`, `/proc/net/dev`
+and `/proc/diskstats` from the sampler, which they are needed for, and
+`MemoryDenyWriteExecute` could not be demonstrated compatible on a real host
+in this project's testing, so it is left for operators to enable if they can
+verify it. On the non-loopback model, allow the chosen port through a host
+firewall: `ufw allow 8080/tcp`. The static release's SHA-256 is
 `4dd11c9dabbd56901ff3ce1c850e2c6e8428a501f93c98b7ec7c4865f32b4c`.
 
 ## Options
@@ -339,10 +363,19 @@ client is deliberately ES5 (no framework, no CSS Grid/flexbox) so it renders on
 old browsers. After editing it, rebuild the release binary before deploying:
 
 ```bash
-cargo build --release              # production binary (single file)
-cargo test                         # unit tests (16: sampling, HTTP, auth, ring, /metrics)
-cargo clippy -- -D warnings        # zero-warning lint gate
+# Full quality gate (fmt, check, test, clippy native + Linux, release build).
+# Installs the rustfmt component / Linux target on demand when cargo came from
+# rustup, so it passes on a fresh toolchain:
+bash scripts/check-gate.sh
+
+# ...or run the steps directly:
+cargo fmt -- --check              # rustfmt gate (needs: rustup component add rustfmt)
+cargo test                        # unit + integration tests (32: sampling, HTTP, auth,
+                                  #   lifecycle/idle gating, limits/timeouts, ring, /metrics)
+cargo clippy -- -D warnings       # zero-warning lint gate
 cargo check --target x86_64-unknown-linux-gnu   # compile-check the Linux branch on any host
+cargo clippy --target x86_64-unknown-linux-gnu -- -D warnings   # lint the Linux branch too
+cargo build --release             # production binary (single file)
 bash scripts/build-linux.sh --static            # fully static musl release (see README, Debian section)
 ```
 

@@ -82,10 +82,7 @@ pub fn cpu(info: &CpuInfo, opts: &RenderOpts) -> String {
                 None => format!("{} logical", info.logical_cores),
             },
         ),
-        (
-            "Usage".to_string(),
-            heat(info.usage, pct(info.usage), opts),
-        ),
+        ("Usage".to_string(), heat(info.usage, pct(info.usage), opts)),
     ];
     for core in &info.cores {
         rows.push((
@@ -193,11 +190,7 @@ pub fn processes(list: &[ProcessInfo], opts: &RenderOpts) -> String {
                 p.user.clone().unwrap_or_else(|| "-".to_string()),
                 p.state.clone(),
                 heat(p.cpu_usage, format!("{:.1}%", p.cpu_usage), opts),
-                heat(
-                    p.memory_percent,
-                    format!("{:.1}%", p.memory_percent),
-                    opts,
-                ),
+                heat(p.memory_percent, format!("{:.1}%", p.memory_percent), opts),
                 bytes(p.memory),
                 p.name.clone(),
             ]
@@ -234,10 +227,7 @@ pub fn vmstat(info: &VmstatInfo, opts: &RenderOpts) -> String {
                 )
             },
         ),
-        (
-            "CPU",
-            heat(info.cpu_usage, pct(info.cpu_usage), opts),
-        ),
+        ("CPU", heat(info.cpu_usage, pct(info.cpu_usage), opts)),
         ("Uptime", uptime(info.uptime_secs)),
     ];
     kv_section("Vmstat", &rows, opts)
@@ -282,9 +272,7 @@ fn heat(value: f32, text: String, opts: &RenderOpts) -> String {
 
 fn opt_temp(t: Option<f32>, opts: &RenderOpts) -> String {
     match t {
-        Some(v) if v > 0.0 && v < 500.0 => {
-            heat(v, format!("{v:.1} °C"), opts)
-        }
+        Some(v) if v > 0.0 && v < 500.0 => heat(v, format!("{v:.1} °C"), opts),
         _ => "-".to_string(),
     }
 }

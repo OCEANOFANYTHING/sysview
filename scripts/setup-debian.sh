@@ -8,8 +8,10 @@
 # installed /usr/local/bin/sysview (e.g. after scripts/build-linux.sh --install).
 #
 # Env overrides (all optional):
-#   BIND=0.0.0.0      address to bind (default 0.0.0.0; set 127.0.0.1 to
-#                     expose only over an SSH tunnel)
+#   BIND=127.0.0.1   address to bind (default 127.0.0.1 = loopback only, i.e.
+#                    reachable only over an SSH tunnel; set 0.0.0.0 to expose
+#                    on the network, which additionally needs a firewall rule
+#                    and the access token below)
 #   PORT=8080         listen port
 #   INTERVAL=1        server sampling interval in seconds (3 = lighter load)
 #   MAX_PROCS=100     processes shown in the dashboard table
@@ -85,7 +87,7 @@ SYSVIEW_TOKEN=$TOKEN
 EOF
 chmod 0600 "$CFG_DIR/env"
 
-BIND="${BIND:-0.0.0.0}"
+BIND="${BIND:-127.0.0.1}"
 PORT="${PORT:-8080}"
 INTERVAL="${INTERVAL:-1}"
 MAX_PROCS="${MAX_PROCS:-100}"
@@ -113,6 +115,22 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+# Kernel/hostname/namespace hardening: nothing sysview reads is affected.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+# Deliberately NOT set, because they would break sysview's own sampling:
+#   ProcSubset=pid          exposes only per-PID entries in /proc, but the
+#                           sampler also reads /proc/meminfo, /proc/stat,
+#                           /proc/net/dev and /proc/diskstats
+#   MemoryDenyWriteExecute  could not be demonstrated compatible on this
+#                           host, so it is left out (comment in README)
 # Optional memory ceiling for the daemon (it normally stays ~10-20 MB; the
 # sampler is dropped to near-zero while no dashboard is connected):
 # MemoryMax=256M
@@ -135,10 +153,16 @@ echo
 echo "sysview is running:"
 echo "  http://$BIND:$PORT/?token=$TOKEN"
 if [ "$BIND" != "127.0.0.1" ]; then
-    echo "  (from another machine: http://<this-host>:${PORT}/?token=$TOKEN)"
-    echo "  if a host firewall is enabled:  ufw allow ${PORT}/tcp  (token is still required)"
+    echo "  exposed on all interfaces; from another machine:"
+    echo "    http://<this-host>:${PORT}/?token=$TOKEN"
+    echo "  harden it first: the token is required, and if a host firewall is"
+    echo "  enabled:  ufw allow ${PORT}/tcp"
 else
-    echo "  loopback only - expose it with:  ssh -N -L ${PORT}:127.0.0.1:${PORT} user@<this-host>"
+    echo "  loopback only; reach it over an SSH tunnel:"
+    echo "    ssh -N -L ${PORT}:127.0.0.1:${PORT} user@<this-host>"
+    echo "    then open http://localhost:${PORT}/?token=$TOKEN"
+    echo "  to expose it on the LAN instead, rerun with BIND=0.0.0.0"
+    echo "  (then also allow the port through the firewall + keep the token)"
 fi
 echo
 echo "manage:   systemctl status $SVC   restart   stop"

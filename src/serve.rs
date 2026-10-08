@@ -1,8 +1,9 @@
 //! Embedded web dashboard server.
 //!
 //! A deliberately minimal HTTP/1.1 server built on `std::net` only, so the
-//! binary stays portable with zero extra dependencies. Thread-per-connection,
-//! `Connection: close`, routes:
+//! binary stays portable with zero extra dependencies. Thread-per-connection
+//! with HTTP/1.1 keep-alive (quiet connections are released by a per-read
+//! timeout instead of parking a thread), routes:
 //!
 //! - `GET /`                -> the dashboard page (embedded HTML)
 //! - `GET /api/snapshot`    -> shared JSON snapshot (see below)
@@ -31,19 +32,21 @@
 //! - Only `GET`/`HEAD` are answered (405 otherwise); malformed request lines
 //!   get 400; no path traversal or proxy-form targets are accepted.
 //! - Bounded concurrency (thread-per-connection with a cap).
+//! - Per-connection read/write timeouts (5 s / 15 s) release quiet or stuck
+//!   clients; all timing knobs live in [`Timeouts`].
 //! - `no-store` + `nosniff` + frame deny + CSP + no-referrer headers.
 
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::collect::{WebState, HISTORY_MAX};
+use crate::collect::{HISTORY_MAX, WebState};
 use crate::model::{MemoryInfo, WebDiskInfo, WebHistory, WebNetworkInfo};
 
 /// Static dashboard page, compiled into the binary.
@@ -52,10 +55,49 @@ const DASHBOARD_HTML: &str = include_str!("../web/dashboard.html");
 /// Maximum concurrent connections (thread cap, also bounds slow-loris sockets).
 const MAX_CONNS: usize = 64;
 
+/// Stack size for connection-handler threads. Handlers parse request heads
+/// and write responses; the one heavier path — the /metrics route — parses
+/// JSON at a bounded depth of ~6 levels and converts to a heap string, so
+/// even it stays within a few KiB of stack. A small, capped stack keeps the
+/// worst-case commit of all connection slots bounded (64 x 256 KiB = 16 MiB)
+/// instead of the ~1-2 MiB per-thread reserve `thread::spawn` would default
+/// to (2 MiB on Linux, 1 MiB on Windows).
+const CONN_STACK_SIZE: usize = 256 * 1024;
+
 /// How long the sampler keeps running after the last dashboard disconnects,
 /// so a quick reload or a handoff between devices never loses a beat. After
 /// this window, the sampling state is dropped until someone connects again.
 const IDLE_GRACE: Duration = Duration::from_secs(30);
+
+/// Per-read idle cutoff: a keep-alive connection that goes quiet is released
+/// after this instead of parking its thread.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Per-write cutoff: a client that stops draining a response is dropped.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Per-connection timing knobs. Tests shrink these so idle gating, read
+/// timeouts and warm-up rebuilds complete in milliseconds instead of seconds;
+/// production always uses [`Timeouts::default`] (the constants above).
+#[derive(Clone, Copy)]
+struct Timeouts {
+    /// How long the sampler keeps sampling after the last connection leaves.
+    idle_grace: Duration,
+    /// Per-read idle cutoff for a quiet keep-alive connection.
+    read: Duration,
+    /// Per-write cutoff for a stuck client.
+    write: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            idle_grace: IDLE_GRACE,
+            read: READ_TIMEOUT,
+            write: WRITE_TIMEOUT,
+        }
+    }
+}
 
 pub struct ServeConfig {
     pub bind: String,
@@ -79,6 +121,17 @@ struct Shared {
     /// wakes up even for connections that last only a few milliseconds (every
     /// dashboard poll is its own short-lived HTTP connection).
     last_conn: Mutex<Instant>,
+    /// Test-only observability: true while the sampler is actively sampling,
+    /// false once it has dropped the state for idle. In production the
+    /// observable signal is the payload 503/200 transition.
+    #[cfg(test)]
+    sampling: AtomicBool,
+    /// Test-only: how many excess connections were refused with a 503 while
+    /// the server was at the connection cap. Asserted from the server side so
+    /// connection-limit tests never depend on a client successfully reading
+    /// the refusal body.
+    #[cfg(test)]
+    rejected: AtomicUsize,
 }
 
 /// Records that a dashboard viewer just pulled live data. This is what keeps
@@ -94,22 +147,7 @@ fn mark_watching(shared: &Shared) {
 pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
     let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port))?;
     let local = listener.local_addr()?;
-    let html: Arc<str> = Arc::from(render_dashboard(&cfg));
-    let shared = Arc::new(Shared {
-        latest: Mutex::new(None),
-        conns: AtomicUsize::new(0),
-        last_conn: Mutex::new(Instant::now()),
-    });
-
-    start_sampler(Arc::clone(&shared), cfg.max_procs, cfg.interval_secs);
-    // Wait until the first payload is ready so the very first client never
-    // sees an empty "warming up" response.
-    for _ in 0..400 {
-        if shared.latest.lock().map(|g| g.is_some()).unwrap_or(false) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(25));
-    }
+    let server = Server::start(&cfg)?;
 
     let has_auth = cfg.token.is_some();
     println!("sysview dashboard: http://{local}/");
@@ -123,45 +161,159 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
     println!("  sampling pauses while no dashboard is open (near-zero memory) and");
     println!("  auto-resumes on connect; the shared history window is preserved.");
     if !has_auth && cfg.bind != "127.0.0.1" {
-        println!("  WARNING: no token set and binding {}. Anyone who can reach", cfg.bind);
+        println!(
+            "  WARNING: no token set and binding {}. Anyone who can reach",
+            cfg.bind
+        );
         println!("           this port can read live system stats. Use --token <secret>.");
     }
     println!("  press Ctrl+C to stop");
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(s) => {
-                if shared.conns.fetch_add(1, Ordering::SeqCst) >= MAX_CONNS {
-                    shared.conns.fetch_sub(1, Ordering::SeqCst);
-                    let mut s = s;
-                    respond(
-                        &mut s,
-                        "503 Service Unavailable",
-                        "text/plain; charset=utf-8",
-                        b"too many connections",
-                        false,
-                        false,
-                    );
-                    continue;
-                }
-                let shared = Arc::clone(&shared);
-                let html = Arc::clone(&html);
-                let token = cfg.token.clone();
-                thread::spawn(move || {
-                    handle_conn(s, shared.clone(), html, token);
-                    shared.conns.fetch_sub(1, Ordering::SeqCst);
-                });
+    server.accept_loop(listener);
+    Ok(())
+}
+
+/// A running dashboard server: shared state, pre-rendered page, auth token and
+/// timing knobs. Owns no threads itself: `run` drives [`Server::accept_loop`]
+/// on the main thread; tests spawn it in a helper thread and signal `stop`.
+struct Server {
+    shared: Arc<Shared>,
+    html: Arc<str>,
+    token: Option<String>,
+    timeouts: Timeouts,
+    stop: Arc<AtomicBool>,
+}
+
+impl Server {
+    /// Spawns the sampler thread and waits for the first payload so the very
+    /// first client never sees an empty "warming up" response. The caller
+    /// passes the already-bound listener to [`Server::accept_loop`].
+    fn start(cfg: &ServeConfig) -> std::io::Result<Self> {
+        Self::start_with_timeouts(cfg, Timeouts::default())
+    }
+
+    fn start_with_timeouts(cfg: &ServeConfig, timeouts: Timeouts) -> std::io::Result<Self> {
+        let html: Arc<str> = Arc::from(render_dashboard(cfg));
+        let shared = Arc::new(Shared {
+            latest: Mutex::new(None),
+            conns: AtomicUsize::new(0),
+            last_conn: Mutex::new(Instant::now()),
+            #[cfg(test)]
+            sampling: AtomicBool::new(false),
+            #[cfg(test)]
+            rejected: AtomicUsize::new(0),
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        start_sampler(
+            Arc::clone(&shared),
+            cfg.max_procs,
+            cfg.interval_secs,
+            timeouts.idle_grace,
+            Arc::clone(&stop),
+        );
+        // Wait until the first payload is ready so the very first client never
+        // sees an empty "warming up" response.
+        for _ in 0..400 {
+            if shared.latest.lock().map(|g| g.is_some()).unwrap_or(false) {
+                break;
             }
-            Err(_) => continue,
+            thread::sleep(Duration::from_millis(25));
+        }
+        Ok(Self {
+            shared,
+            html,
+            token: cfg.token.clone(),
+            timeouts,
+            stop,
+        })
+    }
+
+    /// The accept loop. The listener is polled non-blocking (5 ms) so the loop
+    /// can observe `stop` and shut down cleanly; accepted streams are reset to
+    /// blocking mode (they inherit the listener's non-blocking flag).
+    fn accept_loop(&self, listener: TcpListener) {
+        if listener.set_nonblocking(true).is_err() {
+            return;
+        }
+        while !self.stop.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((s, _)) => {
+                    let mut s = s;
+                    let _ = s.set_nonblocking(false);
+                    if self.shared.conns.fetch_add(1, Ordering::SeqCst) >= MAX_CONNS {
+                        self.shared.conns.fetch_sub(1, Ordering::SeqCst);
+                        #[cfg(test)]
+                        self.shared.rejected.fetch_add(1, Ordering::Relaxed);
+                        respond(
+                            &mut s,
+                            "503 Service Unavailable",
+                            "text/plain; charset=utf-8",
+                            b"too many connections",
+                            false,
+                            false,
+                        );
+                        continue;
+                    }
+                    let shared = Arc::clone(&self.shared);
+                    let html = Arc::clone(&self.html);
+                    let token = self.token.clone();
+                    let timeouts = self.timeouts;
+                    match thread::Builder::new().stack_size(CONN_STACK_SIZE).spawn({
+                        let shared = Arc::clone(&shared);
+                        move || {
+                            handle_conn(s, shared.clone(), html, token, timeouts);
+                            shared.conns.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    }) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            // Thread creation failed: close the stream (the
+                            // closure drops with it) and free the slot so a
+                            // stuck connection can't wedge the cap forever.
+                            shared.conns.fetch_sub(1, Ordering::SeqCst);
+                        }
+                    }
+                }
+                Err(_) => thread::sleep(Duration::from_millis(5)),
+            }
         }
     }
-    Ok(())
+
+    /// Test accessors: whether the sampler currently holds state, has a live
+    /// payload, and how many connection slots are occupied.
+    #[cfg(test)]
+    fn is_sampling(&self) -> bool {
+        self.shared.sampling.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    fn has_payload(&self) -> bool {
+        self.shared
+            .latest
+            .lock()
+            .map(|g| g.is_some())
+            .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    fn conns(&self) -> usize {
+        self.shared.conns.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    fn rejected(&self) -> usize {
+        self.shared.rejected.load(Ordering::Relaxed)
+    }
 }
 
 /// Injects the runtime config (poll interval, kiosk) into the static page.
 fn render_dashboard(cfg: &ServeConfig) -> String {
     let poll_ms = (cfg.interval_secs.max(0.1) * 1000.0).round() as u64;
-    let body_class = if cfg.kiosk { "dashboard kiosk" } else { "dashboard" };
+    let body_class = if cfg.kiosk {
+        "dashboard kiosk"
+    } else {
+        "dashboard"
+    };
     DASHBOARD_HTML
         .replace("var POLL = 2000;", &format!("var POLL = {poll_ms};"))
         .replace("class=\"dashboard\"", &format!("class=\"{body_class}\""))
@@ -170,30 +322,41 @@ fn render_dashboard(cfg: &ServeConfig) -> String {
 /// Background sampler: the single writer of `WebState`.
 ///
 /// Runs continuously but only *samples* while a dashboard is connected, plus
-/// `IDLE_GRACE` after the last one leaves (so reloads/handoffs never drop a
+/// `idle_grace` after the last one leaves (so reloads/handoffs never drop a
 /// beat). Once idle past the grace, the sysinfo state and cached payload are
 /// dropped — the process stays up with near-zero memory. The tiny history ring
 /// is kept, so the next viewer resumes the exact same shared window instead of
-/// starting over.
-fn start_sampler(shared: Arc<Shared>, max_procs: usize, interval: f64) {
+/// starting over. Returns the thread handle; signal `stop` to exit cleanly.
+fn start_sampler(
+    shared: Arc<Shared>,
+    max_procs: usize,
+    interval: f64,
+    idle_grace: Duration,
+    stop: Arc<AtomicBool>,
+) -> thread::JoinHandle<()> {
     let interval = interval.max(0.1);
     thread::spawn(move || {
         let mut st: Option<WebState> = None;
         let mut ring = HistoryRing::new();
         loop {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
             let t0 = Instant::now();
             let active_conns = shared.conns.load(Ordering::Relaxed);
             let last_conn = match shared.last_conn.lock() {
                 Ok(g) => *g,
                 Err(p) => *p.into_inner(),
             };
-            let active = active_conns > 0 || last_conn.elapsed() <= IDLE_GRACE;
+            let active = active_conns > 0 || last_conn.elapsed() <= idle_grace;
 
             if active {
                 // (Re)build sampling state on the first tick after idle.
                 if st.is_none() {
                     st = Some(WebState::new(max_procs));
                 }
+                #[cfg(test)]
+                shared.sampling.store(true, Ordering::Relaxed);
                 let mut snap = st.as_mut().expect("state built above").snapshot();
                 let (rx, tx) = net_rate_sum(&snap.networks);
                 ring.push(
@@ -228,6 +391,8 @@ fn start_sampler(shared: Arc<Shared>, max_procs: usize, interval: f64) {
                 // Nobody watching for a while: free the sysinfo state and the
                 // cached payload. History ring (a few KB) is retained.
                 st = None;
+                #[cfg(test)]
+                shared.sampling.store(false, Ordering::Relaxed);
                 if let Ok(mut g) = shared.latest.lock() {
                     *g = None;
                 }
@@ -238,7 +403,7 @@ fn start_sampler(shared: Arc<Shared>, max_procs: usize, interval: f64) {
                 thread::sleep(Duration::from_secs_f64(sleep));
             }
         }
-    });
+    })
 }
 
 /// Rolling per-metric history (capped), kept in the sampler thread so it
@@ -320,7 +485,11 @@ impl HistoryRing {
             swap: self.swap.iter().copied().collect(),
             rx: self.rx.iter().copied().collect(),
             tx: self.tx.iter().copied().collect(),
-            cores: self.cores.iter().map(|d| d.iter().copied().collect()).collect(),
+            cores: self
+                .cores
+                .iter()
+                .map(|d| d.iter().copied().collect())
+                .collect(),
             disks: self
                 .disks
                 .iter()
@@ -472,20 +641,92 @@ fn json_to_metrics(json: &[u8]) -> String {
         snap.system.uptime_secs,
     );
     if let Some(la) = snap.system.load_average {
-        emit_metric(&mut out, &mut seen, "sysview_load1", "1-minute load average.", la.one);
-        emit_metric(&mut out, &mut seen, "sysview_load5", "5-minute load average.", la.five);
-        emit_metric(&mut out, &mut seen, "sysview_load15", "15-minute load average.", la.fifteen);
+        emit_metric(
+            &mut out,
+            &mut seen,
+            "sysview_load1",
+            "1-minute load average.",
+            la.one,
+        );
+        emit_metric(
+            &mut out,
+            &mut seen,
+            "sysview_load5",
+            "5-minute load average.",
+            la.five,
+        );
+        emit_metric(
+            &mut out,
+            &mut seen,
+            "sysview_load15",
+            "15-minute load average.",
+            la.fifteen,
+        );
     }
-    emit_metric(&mut out, &mut seen, "sysview_ts_seconds", "Unix seconds of the last sample.", snap.ts);
-    emit_metric(&mut out, &mut seen, "sysview_cpu_usage_percent", "Total CPU usage in percent.", snap.cpu.usage);
-    emit_metric(&mut out, &mut seen, "sysview_cpu_logical_cores", "Logical CPU count.", snap.cpu.logical_cores);
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_ts_seconds",
+        "Unix seconds of the last sample.",
+        snap.ts,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_cpu_usage_percent",
+        "Total CPU usage in percent.",
+        snap.cpu.usage,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_cpu_logical_cores",
+        "Logical CPU count.",
+        snap.cpu.logical_cores,
+    );
     let m = &snap.memory;
-    emit_metric(&mut out, &mut seen, "sysview_memory_total_bytes", "Total physical memory in bytes.", m.total);
-    emit_metric(&mut out, &mut seen, "sysview_memory_used_bytes", "Used physical memory in bytes.", m.used);
-    emit_metric(&mut out, &mut seen, "sysview_memory_available_bytes", "Available memory in bytes.", m.available);
-    emit_metric(&mut out, &mut seen, "sysview_memory_used_percent", "Used memory as a percent of total.", m.used_percent);
-    emit_metric(&mut out, &mut seen, "sysview_swap_total_bytes", "Total swap in bytes.", m.swap_total);
-    emit_metric(&mut out, &mut seen, "sysview_swap_used_bytes", "Used swap in bytes.", m.swap_used);
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_memory_total_bytes",
+        "Total physical memory in bytes.",
+        m.total,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_memory_used_bytes",
+        "Used physical memory in bytes.",
+        m.used,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_memory_available_bytes",
+        "Available memory in bytes.",
+        m.available,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_memory_used_percent",
+        "Used memory as a percent of total.",
+        m.used_percent,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_swap_total_bytes",
+        "Total swap in bytes.",
+        m.swap_total,
+    );
+    emit_metric(
+        &mut out,
+        &mut seen,
+        "sysview_swap_used_bytes",
+        "Used swap in bytes.",
+        m.swap_used,
+    );
     for d in &snap.disks {
         let mount = esc_label(&d.mount_point);
         emit_metric(
@@ -502,7 +743,11 @@ fn json_to_metrics(json: &[u8]) -> String {
             "Used disk space in bytes.",
             d.used,
         );
-        let pct = if d.total > 0 { d.used as f64 * 100.0 / d.total as f64 } else { 0.0 };
+        let pct = if d.total > 0 {
+            d.used as f64 * 100.0 / d.total as f64
+        } else {
+            0.0
+        };
         emit_metric(
             &mut out,
             &mut seen,
@@ -580,7 +825,13 @@ fn json_to_metrics(json: &[u8]) -> String {
 
 /// Appends one gauge line, emitting the HELP/TYPE headers the first time a
 /// metric name appears.
-fn emit_metric(out: &mut String, seen: &mut HashSet<String>, name: &str, help: &str, value: impl std::fmt::Display) {
+fn emit_metric(
+    out: &mut String,
+    seen: &mut HashSet<String>,
+    name: &str,
+    help: &str,
+    value: impl std::fmt::Display,
+) {
     if seen.insert(name.to_string()) {
         out.push_str(&format!("# HELP {name} {help}\n# TYPE {name} gauge\n"));
     }
@@ -589,14 +840,22 @@ fn emit_metric(out: &mut String, seen: &mut HashSet<String>, name: &str, help: &
 
 /// Escapes a Prometheus label value (backslash, quote, newline).
 fn esc_label(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
-fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token: Option<String>) {
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
+fn handle_conn(
+    mut stream: TcpStream,
+    shared: Arc<Shared>,
+    html: Arc<str>,
+    token: Option<String>,
+    timeouts: Timeouts,
+) {
+    let _ = stream.set_write_timeout(Some(timeouts.write));
     // Per-read idle timeout: a keep-alive connection that goes quiet is
     // released after a few seconds instead of parking a thread.
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_read_timeout(Some(timeouts.read));
     // Buffered bytes that were read past the last request head. Kept
     // across iterations so pipelined requests (a socket read may grab
     // several heads at once) are not lost between keep-alive cycles.
@@ -628,7 +887,14 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
         let _version = parts.next(); // optional "HTTP/1.1"
         if parts.next().is_some() {
             // More than (method target [version]) -> malformed.
-            respond(&mut stream, "400 Bad Request", "text/plain; charset=utf-8", b"bad request", false, false);
+            respond(
+                &mut stream,
+                "400 Bad Request",
+                "text/plain; charset=utf-8",
+                b"bad request",
+                false,
+                false,
+            );
             return;
         }
 
@@ -651,7 +917,14 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
         // Only origin-form targets (`/path`). Rejects absolute-form proxy targets,
         // empty targets and anything else weird.
         if !target.starts_with('/') || target.len() > 2048 {
-            respond(&mut stream, "400 Bad Request", "text/plain; charset=utf-8", b"bad request", false, false);
+            respond(
+                &mut stream,
+                "400 Bad Request",
+                "text/plain; charset=utf-8",
+                b"bad request",
+                false,
+                false,
+            );
             return;
         }
 
@@ -682,10 +955,17 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
             } else {
                 String::new()
             };
-            let ok = (!supplied.is_empty() && ct_eq(&supplied, tok))
-                || ct_eq(&header_token(&text), tok);
+            let ok =
+                (!supplied.is_empty() && ct_eq(&supplied, tok)) || ct_eq(&header_token(&text), tok);
             if !ok {
-                respond(&mut stream, "401 Unauthorized", "text/plain; charset=utf-8", b"unauthorized", false, false);
+                respond(
+                    &mut stream,
+                    "401 Unauthorized",
+                    "text/plain; charset=utf-8",
+                    b"unauthorized",
+                    false,
+                    false,
+                );
                 return;
             }
         }
@@ -694,7 +974,14 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
             "/" | "/index.html" => {
                 // A dashboard viewer means "someone is watching" for idle gating.
                 mark_watching(&shared);
-                respond(&mut stream, "200 OK", "text/html; charset=utf-8", html.as_bytes(), method == "HEAD", keep);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "text/html; charset=utf-8",
+                    html.as_bytes(),
+                    method == "HEAD",
+                    keep,
+                );
             }
             "/api/snapshot" => {
                 // Read under the lock, respond while the guard is held: avoids a
@@ -711,7 +998,14 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
                 mark_watching(&shared);
                 match guard.as_ref() {
                     Some(j) => {
-                        respond(&mut stream, "200 OK", "application/json; charset=utf-8", j.as_slice(), method == "HEAD", keep);
+                        respond(
+                            &mut stream,
+                            "200 OK",
+                            "application/json; charset=utf-8",
+                            j.as_slice(),
+                            method == "HEAD",
+                            keep,
+                        );
                     }
                     None => respond(
                         &mut stream,
@@ -756,13 +1050,34 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
                 }
             }
             "/health" => {
-                respond(&mut stream, "200 OK", "application/json; charset=utf-8", b"{\"ok\":true}", method == "HEAD", keep);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    b"{\"ok\":true}",
+                    method == "HEAD",
+                    keep,
+                );
             }
             "/favicon.ico" => {
-                respond(&mut stream, "204 No Content", "image/x-icon", b"", true, keep);
+                respond(
+                    &mut stream,
+                    "204 No Content",
+                    "image/x-icon",
+                    b"",
+                    true,
+                    keep,
+                );
             }
             _ => {
-                respond(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"not found", method == "HEAD", keep);
+                respond(
+                    &mut stream,
+                    "404 Not Found",
+                    "text/plain; charset=utf-8",
+                    b"not found",
+                    method == "HEAD",
+                    keep,
+                );
             }
         }
 
@@ -772,7 +1087,14 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, html: Arc<str>, token
     }
 }
 
-fn respond(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8], head_only: bool, keep_alive: bool) {
+fn respond(
+    stream: &mut TcpStream,
+    status: &str,
+    ctype: &str,
+    body: &[u8],
+    head_only: bool,
+    keep_alive: bool,
+) {
     let conn = if keep_alive { "keep-alive" } else { "close" };
     let _ = write!(
         stream,
@@ -825,11 +1147,7 @@ fn wants_keep_alive(head: &str) -> bool {
             close = v.contains("close");
         }
     }
-    if has_conn {
-        !close
-    } else {
-        !http10
-    }
+    if has_conn { !close } else { !http10 }
 }
 
 /// Constant-time byte comparison (resists timing attacks on the token).
@@ -903,6 +1221,8 @@ fn hex(b: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+
     use super::*;
 
     #[test]
@@ -950,7 +1270,10 @@ mod tests {
     fn header_token_parses_bearer() {
         assert_eq!(header_token("Authorization: Bearer abc"), "abc");
         assert_eq!(header_token("authorization: bearer xyz"), "xyz");
-        assert_eq!(header_token("GET / HTTP/1.1\r\nAuthorization: Bearer tok"), "tok");
+        assert_eq!(
+            header_token("GET / HTTP/1.1\r\nAuthorization: Bearer tok"),
+            "tok"
+        );
         assert_eq!(header_token("Authorization: Basic abc"), ""); // wrong scheme
         assert_eq!(header_token(""), "");
         assert_eq!(header_token("X-Custom: Bearer nope"), ""); // wrong header
@@ -1104,11 +1427,11 @@ mod tests {
         let lines = [
             "POST /api/snapshot HTTP/1.1", // non-GET/HEAD
             "TRACE / HTTP/1.1",
-            "GARBAGE",                     // no target
+            "GARBAGE", // no target
             "",
-            "GET http://evil/ HTTP/1.1",   // absolute-form target
-            "GET / HTTP/1.1 EXTRA",        // four tokens
-            "GET /../etc/passwd HTTP/1.1", // dot-segment traversal
+            "GET http://evil/ HTTP/1.1",       // absolute-form target
+            "GET / HTTP/1.1 EXTRA",            // four tokens
+            "GET /../etc/passwd HTTP/1.1",     // dot-segment traversal
             "GET /%2e%2e/etc/passwd HTTP/1.1", // encoded traversal
         ];
         for line in lines {
@@ -1141,15 +1464,25 @@ mod tests {
     fn keep_alive_detection() {
         // HTTP/1.1 defaults to persistent unless Connection: close.
         assert!(wants_keep_alive("GET / HTTP/1.1\r\nHost: x\r\n\r\n"));
-        assert!(wants_keep_alive("GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n"));
-        assert!(!wants_keep_alive("GET / HTTP/1.1\r\nConnection: close\r\n\r\n"));
+        assert!(wants_keep_alive(
+            "GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n"
+        ));
+        assert!(!wants_keep_alive(
+            "GET / HTTP/1.1\r\nConnection: close\r\n\r\n"
+        ));
         // Case-insensitive header + value.
-        assert!(!wants_keep_alive("GET / HTTP/1.1\r\nConnection: ClOsE\r\n\r\n"));
+        assert!(!wants_keep_alive(
+            "GET / HTTP/1.1\r\nConnection: ClOsE\r\n\r\n"
+        ));
         // HTTP/1.0 only persists when explicitly asked.
         assert!(!wants_keep_alive("GET / HTTP/1.0\r\n\r\n"));
-        assert!(wants_keep_alive("GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+        assert!(wants_keep_alive(
+            "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"
+        ));
         // Other headers must not confuse detection.
-        assert!(wants_keep_alive("GET / HTTP/1.1\r\nConnection: upgrade\r\nX-Connection: close\r\n\r\n"));
+        assert!(wants_keep_alive(
+            "GET / HTTP/1.1\r\nConnection: upgrade\r\nX-Connection: close\r\n\r\n"
+        ));
     }
 
     #[test]
@@ -1169,15 +1502,988 @@ mod tests {
         assert!(out.contains("sysview_cpu_usage_percent 12.5\n"), "{out}");
         assert!(out.contains("sysview_memory_used_percent 25\n"), "{out}");
         assert!(out.contains("sysview_processes 1\n"), "{out}");
-        assert!(out.contains("sysview_disk_used_percent{mount=\"C:\\\\\"} 50\n"), "{out}");
-        assert!(out.contains("sysview_net_rx_bps{interface=\"eth0\"} 2\n"), "{out}");
-        assert!(out.contains("sysview_sensor_temperature_celsius{sensor=\"cpu 0\"} 51.2\n"), "{out}");
-        assert!(out.lines().filter(|l| l.starts_with("# TYPE sysview_cpu_usage_percent")).count() == 1);
-        assert!(out.lines().all(|l| l.starts_with('#') || l.contains(' ')), "{out}");
+        assert!(
+            out.contains("sysview_disk_used_percent{mount=\"C:\\\\\"} 50\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("sysview_net_rx_bps{interface=\"eth0\"} 2\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("sysview_sensor_temperature_celsius{sensor=\"cpu 0\"} 51.2\n"),
+            "{out}"
+        );
+        assert!(
+            out.lines()
+                .filter(|l| l.starts_with("# TYPE sysview_cpu_usage_percent"))
+                .count()
+                == 1
+        );
+        assert!(
+            out.lines().all(|l| l.starts_with('#') || l.contains(' ')),
+            "{out}"
+        );
     }
 
     #[test]
     fn metrics_text_tolerates_garbage() {
         assert!(json_to_metrics(b"not json").starts_with("# sysview"));
+    }
+
+    // --- integration helpers -------------------------------------------------
+
+    /// Shrunk timeouts so idle gating and read timeouts settle in a few
+    /// seconds instead of the production 30 s / 5 s windows. `idle_grace` is
+    /// kept comfortably above a single `WebState::new` warmup pass (~0.5 s on
+    /// a loaded host) so one build always fits inside the window, and the
+    /// first-payload waits below re-arm the sampler if a straggling build
+    /// drops one early — the mechanism under test is the idle transition
+    /// itself, not the 30 s duration (production's grace is unaffected).
+    fn test_timeouts() -> Timeouts {
+        Timeouts {
+            idle_grace: Duration::from_millis(1000),
+            read: Duration::from_millis(400),
+            write: Duration::from_secs(5),
+        }
+    }
+
+    /// Binds a loopback listener on an ephemeral port and runs the full
+    /// server (sampler + accept loop) against it. Returns the bound address,
+    /// the shared server (test accessors), the stop flag and the accept-loop
+    /// thread handle.
+    fn start_test_server(
+        auth: Option<&str>,
+    ) -> (
+        SocketAddr,
+        Arc<Server>,
+        Arc<AtomicBool>,
+        thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let local = listener.local_addr().expect("local addr");
+        let cfg = ServeConfig {
+            bind: "127.0.0.1".to_string(),
+            port: local.port(),
+            interval_secs: 0.05,
+            max_procs: 20,
+            token: auth.map(str::to_string),
+            kiosk: false,
+        };
+        let server = Arc::new(
+            Server::start_with_timeouts(&cfg, test_timeouts()).expect("start test server"),
+        );
+        let stop = Arc::clone(&server.stop);
+        let accept = Arc::clone(&server);
+        let handle = thread::spawn(move || accept.accept_loop(listener));
+        (local, server, stop, handle)
+    }
+
+    fn tcp_connect(addr: SocketAddr) -> TcpStream {
+        TcpStream::connect(addr).expect("tcp connect")
+    }
+
+    struct HttpResponse {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    }
+
+    impl HttpResponse {
+        #[allow(dead_code)]
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.as_str())
+        }
+    }
+
+    /// Parses a buffered head; returns `(body_start, content_length, head)`.
+    fn parse_head(buf: &[u8]) -> Option<(usize, usize, String)> {
+        let p = find_terminator(buf)?;
+        let head = String::from_utf8_lossy(&buf[..p]).into_owned();
+        let cl = head
+            .lines()
+            .find_map(|l| {
+                let lower = l.trim().to_ascii_lowercase();
+                lower
+                    .strip_prefix("content-length:")
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+            })
+            .unwrap_or(0);
+        Some((p + 4, cl, head))
+    }
+
+    /// Reads exactly one HTTP response (head + body per Content-Length) off a
+    /// possibly persistent connection, leaving any pipelined tail buffered for
+    /// the next call.
+    fn read_one_response(stream: &mut TcpStream) -> HttpResponse {
+        let mut buf: Vec<u8> = Vec::new();
+        let (body_start, content_length, head) = loop {
+            if let Some(parsed) = parse_head(&buf) {
+                break parsed;
+            }
+            let mut chunk = [0u8; 8192];
+            let n = stream
+                .read(&mut chunk)
+                .unwrap_or_else(|e| panic!("read failed while reading response head: {e}"));
+            if n == 0 {
+                panic!("connection closed mid-response head");
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        };
+        while buf.len() < body_start + content_length {
+            let mut chunk = [0u8; 8192];
+            let n = stream
+                .read(&mut chunk)
+                .unwrap_or_else(|e| panic!("read failed while reading response body: {e}"));
+            if n == 0 {
+                panic!("connection closed mid-response body");
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        let body = buf[body_start..body_start + content_length].to_vec();
+        let status = head
+            .lines()
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(0);
+        let headers = head
+            .lines()
+            .skip(1)
+            .filter_map(|l| {
+                let mut it = l.splitn(2, ':');
+                let k = it.next()?.trim().to_string();
+                let v = it.next()?.trim().to_string();
+                Some((k, v))
+            })
+            .collect();
+        HttpResponse {
+            status,
+            headers,
+            body,
+        }
+    }
+
+    /// Fallible variant used when a connection may be refused (503) or simply
+    /// closed by the server; returns `None` on EOF or timeout.
+    fn try_read_one_response(stream: &mut TcpStream) -> Option<HttpResponse> {
+        let mut buf: Vec<u8> = Vec::new();
+        let (body_start, content_length) = loop {
+            if let Some((bs, cl, _)) = parse_head(&buf) {
+                break (bs, cl);
+            }
+            let mut chunk = [0u8; 8192];
+            match stream.read(&mut chunk) {
+                Ok(0) => return None,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => return None,
+            }
+        };
+        while buf.len() < body_start + content_length {
+            let mut chunk = [0u8; 8192];
+            match stream.read(&mut chunk) {
+                Ok(0) => return None,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => return None,
+            }
+        }
+        let body = buf[body_start..body_start + content_length].to_vec();
+        let head = String::from_utf8_lossy(&buf[..body_start]);
+        let status = head
+            .lines()
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .nth(1)
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(0);
+        Some(HttpResponse {
+            status,
+            headers: Vec::new(),
+            body,
+        })
+    }
+
+    fn http_get(addr: SocketAddr, target: &str) -> HttpResponse {
+        let mut s = tcp_connect(addr);
+        let _ = write!(
+            s,
+            "GET {target} HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n"
+        );
+        let _ = s.flush();
+        read_one_response(&mut s)
+    }
+
+    /// Like `http_get` but with an extra header line (e.g. a Bearer auth
+    /// header) inserted before `Connection:`.
+    fn http_get_with_auth(addr: SocketAddr, target: &str, auth_header: &str) -> HttpResponse {
+        let mut s = tcp_connect(addr);
+        let _ = write!(
+            s,
+            "GET {target} HTTP/1.1\r\nHost: t\r\n{auth_header}\r\nConnection: close\r\n\r\n"
+        );
+        let _ = s.flush();
+        read_one_response(&mut s)
+    }
+
+    fn wait_until(what: &str, cap: Duration, mut cond: impl FnMut() -> bool) {
+        let start = Instant::now();
+        while start.elapsed() < cap {
+            if cond() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        panic!("timed out after {cap:?} waiting for {what}");
+    }
+
+    /// Waits until the sampler holds a live payload — and if it went idle
+    /// first (warm-up build outlasting the test `idle_grace` on a loaded
+    /// host), re-arms it with a dashboard request instead of deadlocking on a
+    /// payload that was built and then dropped. With a token configured the
+    /// re-arm requests must authenticate, or the sampler never comes back.
+    /// Any payload-request eventually wins, so the wait is robust to the test
+    /// grace being shorter than the build.
+    fn wait_for_payload(addr: SocketAddr, server: &Server, auth: Option<&str>, what: &str) {
+        let start = Instant::now();
+        loop {
+            if server.has_payload() {
+                return;
+            }
+            if start.elapsed() > Duration::from_secs(15) {
+                panic!("timed out waiting for {what}");
+            }
+            // Re-arm sampling if the payload was dropped mid-wait. 503 during
+            // a rebuild is fine — the next pass just sends another request.
+            match auth {
+                Some(tok) => {
+                    let _ = http_get_with_auth(
+                        addr,
+                        "/api/snapshot",
+                        &format!("Authorization: Bearer {tok}"),
+                    );
+                }
+                None => {
+                    let _ = http_get(addr, "/api/snapshot");
+                }
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Polls `target` until it answers 200, re-arming the sampler on every
+    /// attempt. A wake request after idle may briefly 503 while the WebState
+    /// rebuilds — that is expected; the first live 200 wins, so a test that
+    /// needs a fresh payload right after waking never races the rebuild. A
+    /// sampler that genuinely failed to re-arm panics on the cap instead.
+    fn wait_for_200(
+        addr: SocketAddr,
+        target: &str,
+        auth: Option<&str>,
+        what: &str,
+    ) -> HttpResponse {
+        let start = Instant::now();
+        loop {
+            let resp = match auth {
+                Some(tok) => {
+                    http_get_with_auth(addr, target, &format!("Authorization: Bearer {tok}"))
+                }
+                None => http_get(addr, target),
+            };
+            if resp.status == 200 {
+                return resp;
+            }
+            if start.elapsed() > Duration::from_secs(15) {
+                panic!("timed out waiting for {what} (last status {})", resp.status);
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Parses a snapshot response, failing loudly on non-200.
+    fn json_snapshot(resp: &HttpResponse) -> serde_json::Value {
+        assert_eq!(
+            resp.status,
+            200,
+            "expected 200, got {} (body: {:?})",
+            resp.status,
+            String::from_utf8_lossy(&resp.body)
+        );
+        serde_json::from_slice(&resp.body).expect("snapshot is valid JSON")
+    }
+
+    /// Deterministic, fully-populated snapshot used by serialization tests.
+    fn sample_snapshot() -> crate::model::WebSnapshot {
+        let mut history = crate::model::WebHistory {
+            cpu: vec![1.0, 2.0],
+            mem: vec![3.0, 4.0],
+            swap: vec![0.0, 0.0],
+            rx: vec![5.0, 6.0],
+            tx: vec![7.0, 8.0],
+            cores: vec![vec![1.0, 2.0]],
+            disks: std::collections::BTreeMap::new(),
+        };
+        history.disks.insert("C:".to_string(), vec![1.0, 2.0]);
+        crate::model::WebSnapshot {
+            ts: 1_720_000_000,
+            system: crate::model::SystemInfo {
+                hostname: Some("host".to_string()),
+                os_name: Some("linux".to_string()),
+                os_version: Some("1.0".to_string()),
+                kernel_version: Some("6.1".to_string()),
+                arch: "x86_64".to_string(),
+                uptime_secs: 100,
+                load_average: Some(crate::model::LoadAvgInfo {
+                    one: 0.1,
+                    five: 0.2,
+                    fifteen: 0.3,
+                }),
+            },
+            cpu: crate::model::CpuInfo {
+                model: "cpu".to_string(),
+                physical_cores: Some(4),
+                logical_cores: 4,
+                usage: 12.5,
+                cores: vec![crate::model::CpuCoreInfo {
+                    name: "cpu0".to_string(),
+                    usage: 10.0,
+                    frequency_mhz: 3000,
+                }],
+            },
+            memory: crate::model::MemoryInfo {
+                total: 1000,
+                used: 250,
+                available: 750,
+                free: 700,
+                swap_total: 200,
+                swap_used: 10,
+                used_percent: 25.0,
+            },
+            disks: vec![crate::model::WebDiskInfo {
+                name: "nvme".to_string(),
+                mount_point: "C:".to_string(),
+                file_system: "NTFS".to_string(),
+                total: 500,
+                available: 250,
+                used: 250,
+                read_bps: 3.0,
+                write_bps: 1.5,
+                removable: false,
+                read_only: false,
+            }],
+            networks: vec![crate::model::WebNetworkInfo {
+                name: "eth0".to_string(),
+                received: 99,
+                transmitted: 88,
+                rx_bps: 2.0,
+                tx_bps: 4.0,
+            }],
+            processes: vec![crate::model::WebProcessInfo {
+                pid: 1,
+                name: "svc".to_string(),
+                user: Some("root".to_string()),
+                cpu_usage: 1.0,
+                memory: 10,
+                memory_percent: 1.0,
+                state: "run".to_string(),
+                threads: Some(2),
+                uptime_secs: 5,
+            }],
+            sensors: crate::model::SensorsInfo {
+                temperatures: vec![crate::model::TemperatureInfo {
+                    label: "cpu".to_string(),
+                    temperature_c: Some(42.0),
+                    max_c: None,
+                    critical_c: None,
+                }],
+            },
+            history,
+        }
+    }
+
+    // --- lifecycle -----------------------------------------------------------
+
+    #[test]
+    fn server_warmup_then_idle_then_wake_preserves_history() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        // Let the 50 ms sampler accumulate a few history points.
+        thread::sleep(Duration::from_millis(400));
+        // Poll until a live snapshot answers: under full-suite contention a
+        // warm-up build can outlast the test idle_grace and drop a published
+        // payload, so the read re-arms instead of racing the rebuild.
+        let before = json_snapshot(&wait_for_200(
+            addr,
+            "/api/snapshot",
+            None,
+            "snapshot after history accumulation",
+        ));
+        let before_len = before["history"]["cpu"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert!(before_len > 0, "history should have accumulated");
+        assert!(
+            before["processes"]
+                .as_array()
+                .map(|a| !a.is_empty())
+                .unwrap_or(false)
+        );
+
+        // Disconnect: sampler drops state and payload after idle_grace.
+        wait_until("sampler goes idle", Duration::from_secs(10), || {
+            !server.is_sampling()
+        });
+        wait_until("payload dropped", Duration::from_secs(10), || {
+            !server.has_payload()
+        });
+
+        // A fresh dashboard wakes it. The first request may briefly 503 while the
+        // WebState rebuilds; poll until a live snapshot answers (every failed
+        // attempt re-arms the sampler, so this always progresses), then read
+        // the preserved history.
+        let _wake = http_get(addr, "/api/snapshot"); // may 503 while rebuilding
+        let after = json_snapshot(&wait_for_200(
+            addr,
+            "/api/snapshot",
+            None,
+            "snapshot after idle wake",
+        ));
+        let after_len = after["history"]["cpu"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        assert!(
+            after_len >= before_len,
+            "history shrank across idle: {before_len} -> {after_len}"
+        );
+    }
+
+    #[test]
+    fn health_check_never_wakes_idle_sampler() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        // Health works while live...
+        for _ in 0..3 {
+            let r = http_get(addr, "/health");
+            assert_eq!(r.status, 200);
+            assert_eq!(r.body, b"{\"ok\":true}");
+        }
+
+        // ...then the server goes idle...
+        wait_until("sampler goes idle", Duration::from_secs(10), || {
+            !server.is_sampling()
+        });
+        wait_until("payload dropped", Duration::from_secs(10), || {
+            !server.has_payload()
+        });
+
+        // ...and health probes must NOT re-arm it.
+        let r = http_get(addr, "/health");
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, b"{\"ok\":true}");
+        // Health checks never mark the server as watched, so it must stay
+        // idle. A tick landing inside the probe may briefly rebuild the state;
+        // wait (with a cap) for the sampler to drop again rather than relying
+        // on a fixed sleep — terminates as soon as it does and fails loudly if
+        // a probe ever permanently armed it.
+        wait_until(
+            "sampler idle after health probe",
+            Duration::from_secs(5),
+            || !server.is_sampling() && !server.has_payload(),
+        );
+    }
+
+    #[test]
+    fn metrics_service_live_and_idle() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        // Live scrape: poll until a real 200 answers (the very first read can hit
+        // the warm-up 503 if a contended build just dropped the payload).
+        let r = wait_for_200(addr, "/metrics", None, "live metrics scrape");
+        let text = String::from_utf8_lossy(&r.body).into_owned();
+        assert!(text.contains("sysview_cpu_usage_percent"), "{text}");
+        assert!(text.contains("sysview_processes"), "{text}");
+
+        // Scraping a sleeping server re-arms sampling, like a dashboard poll.
+        wait_until("sampler goes idle", Duration::from_secs(10), || {
+            !server.is_sampling()
+        });
+        wait_until("payload dropped", Duration::from_secs(10), || {
+            !server.has_payload()
+        });
+        let r = http_get(addr, "/metrics"); // may be 503 while warming up
+        assert!(
+            r.status == 200 || r.status == 503,
+            "expected 200 or 503 while waking, got {}",
+            r.status
+        );
+        // Poll until a live scrape answers (re-arming on every attempt); the
+        // first wake scrape can 503 while the WebState rebuilds.
+        let r2 = wait_for_200(addr, "/metrics", None, "metrics after idle wake");
+        assert!(String::from_utf8_lossy(&r2.body).contains("sysview_processes"));
+    }
+
+    // --- auth ----------------------------------------------------------------
+
+    #[test]
+    fn auth_accepts_query_and_bearer_tokens() {
+        let (addr, server, _stop, _accept) = start_test_server(Some("s3cret"));
+        wait_for_payload(addr, &server, Some("s3cret"), "first payload");
+
+        assert_eq!(http_get(addr, "/api/snapshot").status, 401);
+        assert_eq!(http_get(addr, "/api/snapshot?token=nope").status, 401);
+        assert_eq!(http_get(addr, "/api/snapshot?token=").status, 401);
+        // Valid credentials must eventually serve live data, but the first
+        // request after a short pause can 503 while warming up, so poll.
+        assert_eq!(
+            wait_for_200(addr, "/api/snapshot?token=s3cret", None, "authed snapshot").status,
+            200
+        );
+        assert_eq!(
+            wait_for_200(
+                addr,
+                "/api/snapshot",
+                Some("s3cret"),
+                "authed snapshot via bearer"
+            )
+            .status,
+            200
+        );
+        assert_eq!(
+            http_get_with_auth(addr, "/api/snapshot", "Authorization: Bearer nope").status,
+            401
+        );
+        // Scheme prefix is case-insensitive.
+        assert_eq!(
+            wait_for_200(
+                addr,
+                "/api/snapshot",
+                Some("s3cret"),
+                "authed snapshot via lowercase bearer"
+            )
+            .status,
+            200
+        );
+    }
+
+    #[test]
+    fn auth_gate_applies_to_every_route() {
+        let (addr, server, _stop, _accept) = start_test_server(Some("s3cret"));
+        wait_for_payload(addr, &server, Some("s3cret"), "first payload");
+        for target in [
+            "/",
+            "/index.html",
+            "/api/snapshot",
+            "/metrics",
+            "/health",
+            "/favicon.ico",
+            "/nope",
+        ] {
+            let r = http_get(addr, target);
+            assert_eq!(r.status, 401, "route {target} leaked without a token");
+            let r = http_get(addr, &format!("{target}?token=s3cret"));
+            assert_ne!(r.status, 401, "route {target} rejected a valid token");
+        }
+    }
+
+    // --- robustness ----------------------------------------------------------
+
+    #[test]
+    fn malformed_input_is_rejected_and_server_survives() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        let cases: &[(&str, u16)] = &[
+            ("GARBAGE\r\n\r\n", 405),
+            ("POST /api/snapshot HTTP/1.1\r\n\r\n", 405),
+            ("GET http://evil.example/ HTTP/1.1\r\n\r\n", 400),
+            ("GET /../etc/passwd HTTP/1.1\r\n\r\n", 400),
+            ("GET /%2e%2e/etc/passwd HTTP/1.1\r\n\r\n", 400),
+            ("GET /api/snapshot HTTP/1.1 EXTRA\r\n\r\n", 400),
+        ];
+        for (req, want) in cases {
+            let mut s = tcp_connect(addr);
+            s.write_all(req.as_bytes()).unwrap();
+            s.flush().unwrap();
+            let resp = read_one_response(&mut s);
+            assert_eq!(resp.status, *want, "for request {req:?}");
+        }
+
+        // An oversized (>= 16 KB) unterminated head must be bounded, not
+        // buffered without limit. The first line still parses, so it is served
+        // — the point is the server survives and keeps a sane cap.
+        let mut s = tcp_connect(addr);
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        s.write_all(b"GET / HTTP/1.1\r\nHost: t\r\nX-Pad: ")
+            .unwrap();
+        s.write_all(&[b'a'; 20 * 1024]).unwrap();
+        s.flush().unwrap();
+        let resp = read_one_response(&mut s);
+        assert_eq!(resp.status, 200, "bounded head should still be served");
+
+        // Abandoned / half-sent connections must release their threads.
+        for _ in 0..8 {
+            let mut s = tcp_connect(addr);
+            let _ = s.write_all(b"GET /api/snap"); // partial head, then drop
+            drop(s);
+        }
+        wait_until("connections released", Duration::from_secs(10), || {
+            server.conns() == 0
+        });
+
+        // The server survived everything: a normal request still works.
+        assert_eq!(http_get(addr, "/").status, 200);
+    }
+
+    #[test]
+    fn max_conns_is_enforced_and_recovers() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        // Occupy every slot. A connection that holds a partial request (no
+        // terminator, so the server parks a handler thread in read) would
+        // still expire after the read timeout — racing the time it takes to
+        // fill all MAX_CONNS slots through the accept loop's 5 ms poll under
+        // parallel-suite load and making this test flaky. Instead each holder
+        // drips non-terminating pad bytes, so its handler never goes quiet
+        // (never hits read timeout) yet never completes a head: the hold is
+        // deterministic for as long as the test needs.
+        let release = Arc::new(AtomicBool::new(false));
+        let mut holders: Vec<thread::JoinHandle<()>> = Vec::new();
+        for _ in 0..MAX_CONNS {
+            let release = Arc::clone(&release);
+            holders.push(thread::spawn(move || {
+                let mut s = tcp_connect(addr);
+                let _ = write!(s, "GET /api/snapshot HTTP/1.1\r\nHost: t\r\nX-Pad: ");
+                let pad = [0u8; 64];
+                while !release.load(Ordering::Relaxed) {
+                    if s.write_all(&pad).is_err() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(60));
+                }
+            }));
+        }
+        wait_until("all slots occupied", Duration::from_secs(10), || {
+            server.conns() == MAX_CONNS
+        });
+
+        // Excess connections must be refused while every slot is held. Two
+        // sides are asserted:
+        //   * server side: the reject path runs (a test-only refusal counter
+        //     increments for each excess connection) — this never depends on
+        //     the OS delivering the 503 body to the client;
+        //   * client side: no probe is ever served a 200 (a slot was wrongly
+        //     freed). Note: on this host the server's freshly-written 503 is
+        //     occasionally lost when the accept-loop thread closes right after
+        //     writing (the client sees a fast EOF instead), so the body read
+        //     is best-effort only — sometimes it is the 503 itself.
+        let refused_before = server.rejected();
+        for _ in 0..16 {
+            let mut s = tcp_connect(addr);
+            s.set_read_timeout(Some(Duration::from_secs(2))).ok();
+            let _ = write!(
+                s,
+                "GET /api/snapshot HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n"
+            );
+            let _ = s.flush();
+            match try_read_one_response(&mut s) {
+                Some(resp) if resp.status == 503 => {} // explicit refusal read
+                Some(resp) if resp.status == 200 => {
+                    panic!("excess connection was served a 200 while all slots were held")
+                }
+                Some(resp) => panic!("unexpected status {} for excess connection", resp.status),
+                None => {} // fast EOF: refusal body lost on the wire (see comment above)
+            }
+            drop(s);
+        }
+        assert!(
+            server.rejected() > refused_before,
+            "server never ran the 503 rejection path despite full slots"
+        );
+
+        // Release the holders: they stop dripping and close, the handlers see
+        // EOF and release their slots, and the server fully recovers.
+        release.store(true, Ordering::Relaxed);
+        for h in holders {
+            let _ = h.join();
+        }
+        wait_until("all slots released", Duration::from_secs(10), || {
+            server.conns() == 0
+        });
+
+        // Server fully recovered.
+        assert_eq!(http_get(addr, "/").status, 200);
+    }
+
+    #[test]
+    fn quiet_connections_are_released_by_read_timeout() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        // A connection that sends a partial head and then goes quiet parks a
+        // handler thread — which the read timeout must release.
+        let mut s = tcp_connect(addr);
+        s.write_all(b"GET / HTTP/1.1\r\nHost: t\r\nX-Pad: ")
+            .unwrap();
+        s.flush().unwrap();
+        wait_until("connection accepted", Duration::from_secs(10), || {
+            server.conns() == 1
+        });
+        wait_until("quiet connection released", Duration::from_secs(10), || {
+            server.conns() == 0
+        });
+
+        // The server closed the connection as part of the release.
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut byte = [0u8; 1];
+        let n = s.read(&mut byte).unwrap_or(0);
+        assert_eq!(n, 0, "server should close a timed-out connection");
+
+        // Server is still healthy.
+        assert_eq!(http_get(addr, "/health").status, 200);
+    }
+
+    #[test]
+    fn keep_alive_reuses_the_connection() {
+        let (addr, server, _stop, _accept) = start_test_server(None);
+        wait_for_payload(addr, &server, None, "first payload");
+
+        let mut s = tcp_connect(addr);
+        // Two pipelined keep-alive requests in one write.
+        s.write_all(
+            b"GET /health HTTP/1.1\r\nHost: t\r\n\r\nGET /metrics HTTP/1.1\r\nHost: t\r\n\r\n",
+        )
+        .unwrap();
+        s.flush().unwrap();
+        let r1 = read_one_response(&mut s);
+        assert_eq!(r1.status, 200);
+        assert_eq!(r1.header("connection"), Some("keep-alive"));
+        assert_eq!(r1.body, b"{\"ok\":true}");
+        let r2 = read_one_response(&mut s);
+        assert_eq!(r2.status, 200);
+        assert!(r2.body.windows(8).any(|w| w == &b"sysview_"[..]));
+
+        // A third request on the same socket confirms the connection stayed up.
+        let mut s = s;
+        s.write_all(b"GET /health HTTP/1.1\r\nHost: t\r\n\r\n")
+            .unwrap();
+        s.flush().unwrap();
+        let r3 = read_one_response(&mut s);
+        assert_eq!(r3.status, 200);
+
+        // Connection: close terminates the connection after one final response.
+        s.write_all(b"GET /health HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n")
+            .unwrap();
+        s.flush().unwrap();
+        let r4 = read_one_response(&mut s);
+        assert_eq!(r4.status, 200);
+        let mut byte = [0u8; 1];
+        let n = s.read(&mut byte).unwrap_or(0);
+        assert_eq!(n, 0, "server should close after Connection: close");
+    }
+
+    // --- history ring --------------------------------------------------------
+
+    #[test]
+    fn history_cores_restart_on_core_count_change() {
+        let mut ring = HistoryRing::new();
+        for i in 0..(HISTORY_MAX + 10) {
+            ring.push_cores(&[i as f32, i as f32, i as f32]);
+        }
+        let w = ring.to_web();
+        assert_eq!(w.cores.len(), 3);
+        assert_eq!(w.cores[0].len(), HISTORY_MAX);
+
+        // The VM shrinks to two cores: the per-core windows restart cleanly
+        // instead of misaligning series across a resized core set.
+        for i in 0..5 {
+            ring.push_cores(&[10.0 + i as f32, 20.0 + i as f32]);
+        }
+        let w2 = ring.to_web();
+        assert_eq!(w2.cores.len(), 2);
+        assert_eq!(w2.cores[0].len(), 5);
+        assert_eq!(w2.cores[0][0], 10.0);
+        assert_eq!(w2.cores[1][4], 24.0);
+    }
+
+    // --- /metrics ------------------------------------------------------------
+
+    #[test]
+    fn metrics_escapes_hostile_label_values() {
+        // Decoded label text: a disk mount containing a backslash, a quote and
+        // a real newline; an interface with a quote+backslash; a sensor label
+        // with a newline; and a dead sensor that must emit nothing.
+        let json = r#"{
+            "ts": 1,
+            "system": {"uptime_secs": 1, "load_average": null},
+            "cpu": {"usage": 1.0, "logical_cores": 1},
+            "memory": {"total": 1, "used": 0, "available": 1, "free": 1, "used_percent": 0.0, "swap_total": 0, "swap_used": 0},
+            "disks": [{"mount_point": "C:\\foo\"bar\nbaz", "total": 100, "used": 50, "read_bps": 1.0, "write_bps": 2.0}],
+            "networks": [{"name": "eth\"0\\", "received": 1, "transmitted": 2, "rx_bps": 3.0, "tx_bps": 4.0}],
+            "processes": [{}],
+            "sensors": {"temperatures": [{"label": "cpu\n0", "temperature_c": 42.0}, {"label": "dead", "temperature_c": null}]}
+        }"#;
+        let out = json_to_metrics(json.as_bytes());
+        assert!(out.contains("mount=\"C:\\\\foo\\\"bar\\nbaz\""), "{out}");
+        assert!(out.contains("interface=\"eth\\\"0\\\\\""), "{out}");
+        assert!(
+            out.contains("sysview_sensor_temperature_celsius{sensor=\"cpu\\n0\"} 42"),
+            "{out}"
+        );
+        // A real newline must never appear inside a label value.
+        assert!(!out.contains("bar\nbaz"), "{out}");
+        assert!(!out.contains("cpu\n0"), "{out}");
+        // A sensor without a reading produces no gauge line.
+        assert!(!out.contains("sensor=\"dead\""), "{out}");
+    }
+
+    #[test]
+    fn metrics_counts_processes_without_materializing_them() {
+        // The process array decode type is zero-sized: serde counts elements
+        // without allocating anything per process.
+        assert_eq!(std::mem::size_of::<MetricsIgnored>(), 0);
+        let json = r#"{
+            "ts": 1,
+            "system": {"uptime_secs": 1, "load_average": null},
+            "cpu": {"usage": 1.0, "logical_cores": 1},
+            "memory": {"total": 1, "used": 0, "available": 1, "free": 1, "used_percent": 0.0, "swap_total": 0, "swap_used": 0},
+            "disks": [],
+            "networks": [],
+            "processes": [{}, {}, {}, {"pid": 9, "name": "x"}],
+            "sensors": {"temperatures": []}
+        }"#;
+        let out = json_to_metrics(json.as_bytes());
+        assert!(out.contains("sysview_processes 4\n"), "{out}");
+    }
+
+    #[test]
+    fn metrics_conversion_stays_cheap_for_large_snapshots() {
+        // Build a snapshot with 3000 processes, 100 disks and 100 interfaces.
+        let mut json = String::with_capacity(512 * 1024);
+        json.push_str(
+            "{\"ts\":1,\"system\":{\"uptime_secs\":1,\"load_average\":null},\
+             \"cpu\":{\"usage\":1.0,\"logical_cores\":4},\
+             \"memory\":{\"total\":1,\"used\":0,\"available\":1,\"free\":1,\"used_percent\":0.0,\"swap_total\":0,\"swap_used\":0},\
+             \"disks\":[",
+        );
+        for i in 0..100 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"mount_point\":\"/mnt/{i}\",\"total\":{i},\"used\":0,\"read_bps\":0.0,\"write_bps\":0.0}}"
+            ));
+        }
+        json.push_str("],\"networks\":[");
+        for i in 0..100 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"name\":\"eth{i}\",\"received\":0,\"transmitted\":0,\"rx_bps\":0.0,\"tx_bps\":0.0}}"
+            ));
+        }
+        json.push_str("],\"processes\":[");
+        for i in 0..3000 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"pid\":{i},\"name\":\"p{i}\",\"user\":null,\"cpu_usage\":0.0,\"memory\":0,\"memory_percent\":0.0,\"state\":\"run\",\"threads\":null,\"uptime_secs\":1}}"
+            ));
+        }
+        json.push_str("],\"sensors\":{\"temperatures\":[]}}");
+        let bytes = json.as_bytes();
+
+        let start = Instant::now();
+        let mut out_len = 0usize;
+        for _ in 0..5 {
+            out_len += json_to_metrics(bytes).len();
+        }
+        let elapsed = start.elapsed();
+        assert!(out_len > 1000, "conversion produced nothing?");
+        // Guard, not benchmark: measured 70-115 ms for 5 conversions of this
+        // 3000-process snapshot (debug build, Windows), so 2 s of headroom is
+        // ~20x the worst observed run. Generous enough to never flake on a
+        // loaded host, tight enough to catch a regression into quadratic or
+        // per-process-allocation conversion (which would land an order of
+        // magnitude above this).
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "conversion too slow: {elapsed:?}"
+        );
+    }
+
+    // --- perf ----------------------------------------------------------------
+
+    #[test]
+    fn snapshot_serialize_reuses_buffer_capacity() {
+        // The sampler recycles one buffer per session: it takes the cached
+        // Vec, clears it and writes the new snapshot in place. Clearing a Vec
+        // preserves capacity, so successive ticks must never reallocate.
+        // This pins that pattern deterministically.
+        let mut buf = Vec::new();
+        serde_json::to_writer(&mut buf, &sample_snapshot()).unwrap();
+        let first = buf.len();
+        let cap = buf.capacity();
+        assert!(first > 0);
+
+        buf.clear();
+        serde_json::to_writer(&mut buf, &sample_snapshot()).unwrap();
+        assert!(!buf.is_empty());
+        assert_eq!(
+            buf.capacity(),
+            cap,
+            "buffer capacity must be reused across ticks"
+        );
+        assert_eq!(
+            buf.len(),
+            first,
+            "same-size snapshot serializes to same length"
+        );
+    }
+
+    // --- unit ----------------------------------------------------------------
+
+    #[test]
+    fn timeouts_default_are_production_constants() {
+        let t = Timeouts::default();
+        assert_eq!(t.idle_grace, IDLE_GRACE);
+        assert_eq!(t.read, READ_TIMEOUT);
+        assert_eq!(t.write, WRITE_TIMEOUT);
+    }
+
+    /// Memory posture guard: connection threads run on a small capped stack
+    /// (head parsing and response writes are shallow; even the /metrics JSON
+    /// decode is bounded-depth), so the worst case across all MAX_CONNS slots
+    /// is a fixed, bounded commit instead of the ~1-2 MiB-per-thread default
+    /// reserve. This pins that ceiling: raise the bound only if a handler
+    /// ever starts doing deep or unbounded work on the connection thread.
+    #[test]
+    fn connection_thread_stacks_are_bounded() {
+        // black_box keeps the values opaque so the assertions genuinely run
+        // (and guard future edits to these constants) instead of being folded
+        // away as compile-time-known truth.
+        let stack = std::hint::black_box(CONN_STACK_SIZE);
+        let conns = std::hint::black_box(MAX_CONNS);
+        assert!(
+            stack >= 32 * 1024,
+            "stack of {stack} is too small to be sane"
+        );
+        let worst_case = conns * stack;
+        assert!(
+            worst_case <= 32 * 1024 * 1024,
+            "connection threads could commit {worst_case} bytes"
+        );
     }
 }

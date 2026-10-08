@@ -133,7 +133,14 @@ fn main() {
     let cli = Cli::parse();
 
     // Serve the embedded web dashboard (blocks forever).
-    if let Some(Section::Serve { port, bind, max_procs, token, kiosk }) = cli.section.clone() {
+    if let Some(Section::Serve {
+        port,
+        bind,
+        max_procs,
+        token,
+        kiosk,
+    }) = cli.section.clone()
+    {
         let cfg = serve::ServeConfig {
             bind,
             port,
@@ -215,7 +222,9 @@ fn output_stream(cli: &Cli) -> Box<dyn Write> {
 
 fn run_watch(cli: &Cli) {
     if cli.json {
-        eprintln!("note: --json with --watch prints one snapshot per clear; consider piping instead");
+        eprintln!(
+            "note: --json with --watch prints one snapshot per clear; consider piping instead"
+        );
     }
     let mut sys = System::new();
     let interval = cli.interval.max(0.1);
