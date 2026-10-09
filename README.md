@@ -382,8 +382,8 @@ in this project's testing, so it is left for operators to enable if they can
 verify it. On the non-loopback model, allow the chosen port through a host
 firewall: `ufw allow 8080/tcp`. Verify the binary you download against
 `SHA256SUMS` on the Release page rather than a hash pinned in this doc — it
-changes with every release (the v0.1.2 musl build was
-`6107646098c369986cee4b3dc5afd1c6906a8885bd947c112d56e2219dae02e6`).
+changes with every release (the current v0.1.3 musl build is
+`27b376a6dd7a8a8dedb27a744bf2ae56fb4abd5493fe0a4c9cb5a80036363af1`).
 
 ## Options
 
