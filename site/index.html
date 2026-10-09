@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sysview — system stats at a glance, on terminal, browser, LAN</title>
+<meta name="description" content="sysview is a portable one-shot system stats viewer for Windows, Linux and macOS. One static binary: a fast CLI overview, a live dark-mode web dashboard, and Prometheus metrics — with no runtime and no dependencies.">
+<meta name="theme-color" content="#070a12">
+<meta property="og:title" content="sysview — system stats at a glance">
+<meta property="og:description" content="Portable one-shot system stats viewer: CLI, live web dashboard and Prometheus metrics in a single static binary.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='7' fill='%23070a12'/%3E%3Cpath d='M7 17 L12 11 L17 19 L22 13 L26 17' stroke='%2322d3ee' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<header class="nav" id="top">
+  <nav class="nav-inner">
+    <a class="brand" href="#top" aria-label="sysview home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/><path d="M7 17 L12 11 L17 19 L22 13 L26 17" stroke="url(#bg)" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs></svg>
+      </span>
+      <span class="brand-name">sysview</span>
+      <span class="brand-ver">v0.1.2</span>
+    </a>
+    <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="navLinks">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#security">Security</a>
+      <a href="#deploy">Deploy 24&times;7</a>
+      <a href="#metrics">Metrics</a>
+      <a href="#faq">FAQ</a>
+      <a class="btn btn-ghost btn-small" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">GitHub &#8599;</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="glow" aria-hidden="true"></div>
+    <div class="wrap hero-inner">
+      <p class="pill"><span class="dot"></span> v0.1.2 &middot; one static binary &middot; zero runtime deps</p>
+      <h1>System stats at a glance.
+        <span class="grad">Terminal. Browser. LAN.</span></h1>
+      <p class="lede">sysview is a portable, one-shot system stats viewer for
+        Windows, Linux and macOS. The same tiny binary gives you a fast CLI
+        overview, a live dark-mode web dashboard, and Prometheus metrics &mdash;
+        with no runtime, no framework and no installer.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.2</a>
+        <a class="btn btn-secondary" href="#quickstart">Quick start &darr;</a>
+      </div>
+      <ul class="stats">
+        <li><b>&asymp;3&ndash;4 MB</b><span>binary size</span></li>
+        <li><b>&asymp;2&ndash;4 MB</b><span>private RSS at idle</span></li>
+        <li><b>0</b><span>runtime dependencies</span></li>
+        <li><b>3</b><span>platforms, one codebase</span></li>
+      </ul>
+    </div>
+
+    <div class="wrap">
+      <figure class="shot-frame">
+        <div class="chrome">
+          <span class="tl tl-r"></span><span class="tl tl-y"></span><span class="tl tl-g"></span>
+          <span class="addr">http://192.168.100.114:8080/?token=&#9679;&#9679;&#9679;&#9679;</span>
+          <span class="live"><i></i> live</span>
+        </div>
+        <img src="assets/dashboard.png" alt="sysview live web dashboard showing CPU, memory, disk, network and process panels" width="1280" height="720">
+        <figcaption>The embedded dashboard &mdash; served by <code>sysview serve</code>, one self-contained page, nothing to install.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ FEATURES ============ -->
+  <section class="section" id="features">
+    <div class="wrap">
+      <p class="eyebrow">01 &mdash; Features</p>
+      <h2>Two front-ends, one tiny process</h2>
+      <p class="sub">The <code>serve</code> command hosts the dashboard and
+        <code>/metrics</code>; the remaining commands render directly to your
+        terminal. Both share the same sampler, so numbers always agree.</p>
+
+      <div class="cols cols-feat">
+        <article class="card">
+          <div class="card-head">
+            <span class="ico" aria-hidden="true">&#9553;</span>
+            <h3>Terminal CLI</h3>
+          </div>
+          <ul class="ticks">
+            <li>Sections: <code>cpu</code>, <code>mem</code>, <code>procs</code>, <code>disks</code>, <code>net</code>, <code>temp</code> &mdash; or the full overview</li>
+            <li><code>--watch</code> live refresh, <code>--json</code> machine-readable output</li>
+            <li>Sortable process table (<code>--sort cpu|mem&hellip;</code>), <code>--top N</code></li>
+            <li>Color modes <code>auto|always|never</code>, units <code>iec|si|bytes</code></li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <span class="ico" aria-hidden="true">&#9681;</span>
+            <h3>Web dashboard</h3>
+          </div>
+          <ul class="ticks">
+            <li>Live dark-mode page embedded in the binary &mdash; no build step, no Node</li>
+            <li>Per-core CPU sparklines, drawn crisply on HiDPI displays</li>
+            <li>Shared 240-sample history across every connected device</li>
+            <li>Disk donuts, net/sensor mini-trends, kiosk mode, snapshot JSON download</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <span class="ico" aria-hidden="true">&#8721;</span>
+            <h3>Memory-lean by design</h3>
+          </div>
+          <ul class="ticks">
+            <li>Idle process: &asymp;2&ndash;4 MB private RSS (measured on a headless Debian 13 server)</li>
+            <li>Sampler sleeps after 30 s with no viewer &mdash; history ring survives</li>
+            <li>Command lines / environments never held between snapshots</li>
+            <li>systemd unit ships with a 256 MB memory ceiling</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <div class="card-head">
+            <span class="ico" aria-hidden="true">&#9670;</span>
+            <h3>Prometheus &middot; out of the box</h3>
+          </div>
+          <ul class="ticks">
+            <li><code>/metrics</code> on the same port &mdash; Prometheus text 0.0.4</li>
+            <li>CPU, load, memory, swap, disks, per-interface net, temp sensors, process count</li>
+            <li>Decoded from the cached snapshot: nothing materialized, nothing retained</li>
+            <li>Zero cost while idle &mdash; same 30 s pause as the dashboard</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUICK START ============ -->
+  <section class="section alt" id="quickstart">
+    <div class="wrap">
+      <p class="eyebrow">02 &mdash; Quick start</p>
+      <h2>Running in three platforms</h2>
+      <p class="sub">Download the binary for your OS from
+        <a href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Releases</a>.
+        Verify against the <code>SHA256SUMS</code> on the release page, then run &mdash; that&rsquo;s it.</p>
+
+      <div class="tabs" role="tablist" aria-label="Platform">
+        <button class="tab" role="tab" data-tab="win" aria-selected="true">Windows</button>
+        <button class="tab" role="tab" data-tab="linux" aria-selected="false">Linux</button>
+        <button class="tab" role="tab" data-tab="mac" aria-selected="false">macOS</button>
+      </div>
+
+      <div class="panel" id="panel-win" role="tabpanel">
+        <pre class="term"><code><span class="cm"># download sysview-windows-x86_64.exe, then in a terminal:</span>
+<span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe                 <span class="cm"># full overview</span>
+<span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe procs --top 20  <span class="cm"># top processes by CPU</span>
+<span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe serve           <span class="cm"># dashboard on :8080</span></code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+      </div>
+      <div class="panel hidden" id="panel-linux" role="tabpanel">
+        <pre class="term"><code><span class="pr">$</span> chmod +x sysview-linux-x86_64-musl
+<span class="pr">$</span> ./sysview-linux-x86_64-musl                      <span class="cm"># full overview</span>
+<span class="pr">$</span> ./sysview-linux-x86_64-musl cpu --json           <span class="cm"># CPU as JSON</span>
+<span class="pr">$</span> ./sysview-linux-x86_64-musl serve --bind 0.0.0.0 --port 8080 --token "$SECRET"</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+      </div>
+      <div class="panel hidden" id="panel-mac" role="tabpanel">
+        <pre class="term"><code><span class="pr">$</span> chmod +x sysview-mac-universal
+<span class="pr">$</span> ./sysview-mac-universal                          <span class="cm"># full overview</span>
+<span class="pr">$</span> ./sysview-mac-universal --watch --interval 1 --sort mem -r --top 15
+<span class="pr">$</span> ./sysview-mac-universal serve                    <span class="cm"># dashboard on :8080</span></code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+      </div>
+
+      <div class="callout">
+        <h4>&#128279;&nbsp; Share it on your LAN</h4>
+        <p>Bind beyond loopback and the startup banner prints the ready-to-open
+          URL with your token &mdash; just scan or type it on any phone, tablet
+          or TV in the network.</p>
+        <pre class="term"><code><span class="pr">$</span> sysview serve --bind 0.0.0.0 --port 8080 --token "$SECRET"
+<span class="ok"># open on any device:</span>  http://&lt;server-ip&gt;:8080/?token=$SECRET</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SECURITY ============ -->
+  <section class="section" id="security">
+    <div class="wrap">
+      <p class="eyebrow">03 &mdash; Security</p>
+      <h2>Safe by default, locked down by default</h2>
+      <div class="cols cols-3">
+        <article class="card mini">
+          <h3>Loopback first</h3>
+          <p><code>serve</code> binds <code>127.0.0.1</code> unless you explicitly
+            pass <code>--bind 0.0.0.0</code>. Nothing is reachable off-box by accident.</p>
+        </article>
+        <article class="card mini">
+          <h3>Token on every route</h3>
+          <p>Set <code>--token</code> and every route (<code>/</code>,
+            <code>/api/snapshot</code>, <code>/metrics</code>) returns
+            <code>401</code> without it. Token never appears in logs.</p>
+        </article>
+        <article class="card mini">
+          <h3>Hardened systemd unit</h3>
+          <p><code>DynamicUser</code>, <code>ProtectSystem=strict</code>,
+            <code>NoNewPrivileges</code>, private <code>/tmp</code> &mdash;
+            and <code>Restart=always</code> with <code>MemoryMax=256M</code>.</p>
+        </article>
+      </div>
+      <p class="note">For HTTPS in front of a LAN deployment, put it behind a
+        reverse proxy (nginx / Caddy). The service listens on one port and
+        speaks plain HTTP &mdash; the same story as any self-hosted app.</p>
+    </div>
+  </section>
+
+  <!-- ============ DEPLOY ============ -->
+  <section class="section alt" id="deploy">
+    <div class="wrap">
+      <p class="eyebrow">04 &mdash; Deploy 24&times;7</p>
+      <h2>One command to a boot-proof server install</h2>
+      <p class="sub">The bundled installer targets Debian-family servers. It
+        copies the binary, writes a hardened systemd unit, and prints the
+        <b>enabled at boot</b> check when done.</p>
+      <pre class="term"><code><span class="pr">$</span> sudo BIND=0.0.0.0 PORT=8080 INTERVAL=1 MAX_PROCS=100 \
+&nbsp;&nbsp;&nbsp;&nbsp;bash setup-debian.sh ./sysview-linux-x86_64-musl
+<span class="ok"># systemctl is-enabled sysview  &rarr;  enabled</span>
+<span class="ok"># the startup banner prints:</span>  http://192.168.100.114:8080/?token=&#9679;&#9679;&#9679;&#9679;</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+      <div class="glyphs">
+        <div><b class="g ok">&#10003;</b>Auto-starts at boot (<code>WantedBy=multi-user.target</code>)</div>
+        <div><b class="g ok">&#10003;</b>Survives crashes &amp; kill -9 (<code>Restart=always</code>)</div>
+        <div><b class="g ok">&#10003;</b>256 MB memory ceiling, token on disk in root-only <code>/etc/sysview/</code></div>
+        <div><b class="g">&#8680;</b>Open the port once: <code>sudo ufw allow 8080/tcp</code></div>
+        <div><b class="g">&#8680;</b>Watch it: <code>sudo journalctl -u sysview -f</code></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ METRICS ============ -->
+  <section class="section" id="metrics">
+    <div class="wrap">
+      <p class="eyebrow">05 &mdash; Prometheus</p>
+      <h2><code>/metrics</code>, scraped straight from the snapshot</h2>
+      <p class="sub">Every metric is a gauge decoded from the same cached
+        snapshot the dashboard serves &mdash; no extra allocations while idle.
+        Point Prometheus at <code>http://host:8080/metrics?token=&#9679;&#9679;&#9679;&#9679;</code>.</p>
+
+      <div class="metric-grid">
+        <div class="card mini">
+          <h3>Host</h3>
+          <ul class="code-list">
+            <li><code>sysview_up</code></li>
+            <li><code>sysview_uptime_seconds</code></li>
+            <li><code>sysview_load1 / 5 / 15</code></li>
+            <li><code>sysview_ts_seconds</code></li>
+          </ul>
+        </div>
+        <div class="card mini">
+          <h3>CPU</h3>
+          <ul class="code-list">
+            <li><code>sysview_cpu_usage_percent</code></li>
+            <li><code>sysview_cpu_logical_cores</code></li>
+          </ul>
+        </div>
+        <div class="card mini">
+          <h3>Memory</h3>
+          <ul class="code-list">
+            <li><code>sysview_memory_*_bytes</code></li>
+            <li><code>sysview_memory_used_percent</code></li>
+            <li><code>sysview_swap_total / used_bytes</code></li>
+          </ul>
+        </div>
+        <div class="card mini">
+          <h3>Disk</h3>
+          <ul class="code-list">
+            <li><code>sysview_disk_*_bytes{mount=...}</code></li>
+            <li><code>sysview_disk_used_percent{mount=...}</code></li>
+            <li><code>sysview_disk_read / write_bps</code></li>
+          </ul>
+        </div>
+        <div class="card mini">
+          <h3>Network</h3>
+          <ul class="code-list">
+            <li><code>sysview_net_rx / tx_bps{interface=...}</code></li>
+            <li><code>sysview_net_received / transmitted_bytes_total</code></li>
+          </ul>
+        </div>
+        <div class="card mini">
+          <h3>Processes &amp; temp</h3>
+          <ul class="code-list">
+            <li><code>sysview_processes</code></li>
+            <li><code>sysview_sensor_temperature_celsius{sensor=...}</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <pre class="term"><code><span class="cm"># a real excerpt from a live headless box:</span>
+<span class="cm"># HELP sysview_cpu_usage_percent Total CPU usage in percent.</span>
+<span class="cm"># TYPE sysview_cpu_usage_percent gauge</span>
+sysview_cpu_usage_percent 1.0
+sysview_memory_used_bytes 631320576
+sysview_disk_used_percent{mount=&quot;/&quot;} 7.16
+sysview_net_rx_bps{interface=&quot;wlx3460f9f543f9&quot;} 6565
+sysview_sensor_temperature_celsius{sensor=&quot;thinkpad CPU&quot;} 42
+sysview_processes 137</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+    </div>
+  </section>
+
+  <!-- ============ FAQ ============ -->
+  <section class="section alt" id="faq">
+    <div class="wrap">
+      <p class="eyebrow">06 &mdash; FAQ</p>
+      <h2>Questions, answered</h2>
+      <div class="faq">
+        <details open>
+          <summary>Does it need a runtime or an installer?</summary>
+          <p>No. It&rsquo;s one self-contained static binary per platform.
+            Download, <code>chmod +x</code> (on Unix), run. No Node, no Python,
+            no system packages, nothing to configure.</p>
+        </details>
+        <details>
+          <summary>Is it safe to expose on my LAN?</summary>
+          <p>The dashboard binds loopback by default and only listens on
+            <code>0.0.0.0</code> when you ask it to. Set a token and every
+            route is <code>401</code> without it. The startup banner prints the
+            ready-to-open URL with your token so you never type it by hand.
+            Lock the port in your firewall to keep it LAN-only.</p>
+        </details>
+        <details>
+          <summary>How much memory does it really use?</summary>
+          <p>Around 2&ndash;4 MB private RSS at idle on a headless Debian 13
+            server, and the sampler pauses after 30 seconds with no viewer.
+            It never retains command lines or environments between snapshots,
+            so long-running instances don&rsquo;t grow. The systemd unit adds a
+            256 MB ceiling as a hard cap.</p>
+        </details>
+        <details>
+          <summary>Will it come back after a reboot or crash?</summary>
+          <p>Yes. The systemd unit is installed <code>enabled</code> with
+            <code>WantedBy=multi-user.target</code> and
+            <code>Restart=always</code> &mdash; it starts after the network is
+            online and revives within seconds of any crash, including
+            <code>kill -9</code>.</p>
+        </details>
+        <details>
+          <summary>Does it have Prometheus support?</summary>
+          <p>Yes &mdash; <code>/metrics</code> on the same port, Prometheus
+            text 0.0.4, token-protected, decoded from the already-cached
+            snapshot with zero per-poll allocations.</p>
+        </details>
+        <details>
+          <summary>What about HTTPS?</summary>
+          <p>Put a reverse proxy (nginx, Caddy) in front of it for TLS. The
+            service listens on a single port and speaks plain HTTP, like any
+            other self-hosted tool &mdash; your proxy adds the certificate.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/><path d="M7 17 L12 11 L17 19 L22 13 L26 17" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span>sysview</span>
+      <span class="dim">&middot; MIT &middot; <span id="year">2026</span></span>
+    </div>
+    <nav class="footer-links">
+      <a href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/OCEANOFANYTHING/sysview/blob/main/README.md" target="_blank" rel="noopener">README</a>
+      <a href="https://github.com/OCEANOFANYTHING/sysview/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+    </nav>
+    <p class="dim small">Built with Rust &mdash; no runtime, no framework, no
+      build step for users. Written from scratch; made to stay out of your way.</p>
+  </div>
+</footer>
+
+<a class="toplink" href="#top" aria-label="Back to top" hidden>&uarr;</a>
+
+<script src="app.js"></script>
+</body>
+</html>

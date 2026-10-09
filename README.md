@@ -2,7 +2,8 @@
 
 Portable one-shot system stats viewer for Windows, Linux and macOS.
 
-Docs: usage below · maintainers/integrators: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Docs: usage below · site: <https://oceanofanything.github.io/sysview> ·
+maintainers/integrators: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 (sampling model, idle lifecycle, HTTP protocol, `/metrics` pipeline).
 
 ## Contents
