@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0b0e14">
 <meta name="referrer" content="no-referrer">
+<script>
+/* Legacy retro theme, applied before first paint so there is no flash.
+   Honors a saved choice and/or ?legacy=1 on the URL (handy for kiosk wall
+   displays). ES5, no dependencies. */
+(function () {
+  var t = "modern";
+  try { t = (window.localStorage && localStorage.getItem("sysview.theme")) || "modern"; } catch (e) { t = "modern"; }
+  if ((location.search || "").indexOf("legacy") >= 0) t = "legacy";
+  if (t === "legacy") document.documentElement.className = "legacy";
+})();
+</script>
 <title>sysview dashboard</title>
 <style>
 html, body { margin:0; padding:0; }
@@ -173,6 +184,20 @@ body.kiosk #status { -webkit-transition:opacity .8s ease; transition:opacity .8s
 body.kiosk.kiosk-idle #status { opacity:0; pointer-events:none; }
 body.kiosk #clock { font-size:16px; font-weight:700; color:#e6edf3; }
 
+/* ---- kiosk escape button: always reachable on touch screens (fades with
+       the status bar while idle, wakes with any touch/key/mouse move) ---- */
+#kioskExit {
+  position:fixed; right:12px; bottom:42px; z-index:60; display:none;
+  background:#21262d; color:#e6edf3; border:1px solid #30363d; border-radius:4px;
+  padding:8px 12px; font-size:13px; line-height:1.2; cursor:pointer;
+  -webkit-user-select:none; user-select:none;
+  -webkit-tap-highlight-color:rgba(0,0,0,0);
+  -webkit-transition:opacity .8s ease; transition:opacity .8s ease;
+}
+body.kiosk #kioskExit { display:inline-block; }
+#kioskExit:hover { background:#30363d; }
+body.kiosk.kiosk-idle #kioskExit { opacity:0; pointer-events:none; }
+
 /* ---- header load/uptime line (with tiny load-average spark) ---- */
 header .row3 { color:#8b949e; font-size:12px; margin-top:3px; white-space:nowrap; }
 #loadSpark { width:84px; height:24px; vertical-align:middle; margin-left:6px; }
@@ -227,6 +252,75 @@ tr.alert-red td { color:#f85149; }
   header .row1 .host { display:none; }
   .controls { position:static; text-align:right; margin-top:4px; }
 }
+
+/* ---- legacy retro (Windows-95 look) theme ----
+   Pure CSS class on <html>; modern UI stays the default. Uses only old-browser
+   safe features: class selectors, outset/inset borders, no flexbox/grid. */
+html.legacy body {
+  background:#c0c0c0; color:#000;
+  font-family:"MS Sans Serif",Tahoma,Verdana,Arial,sans-serif;
+}
+html.legacy a { color:#0000cc; }
+html.legacy header { background:#000080; border-bottom:2px solid #000; }
+html.legacy header .row1 .title { color:#ffffff; }
+html.legacy header .row1 .title .dot { color:#ffff00; }
+html.legacy header .row1 .host { color:#c0c0c0; }
+html.legacy header .row2, html.legacy header .row3 { color:#ffffcc; }
+html.legacy .controls button, html.legacy .controls select {
+  background:#c0c0c0; color:#000; border:2px outset #ffffff; border-radius:0;
+  font-family:inherit; font-size:12px; padding:3px 9px; cursor:pointer;
+}
+html.legacy .controls button:active, html.legacy .controls button.pressed,
+html.legacy .controls select:active { border-style:inset; }
+html.legacy #healthBadge {
+  background:#ffffff; border:2px inset #c0c0c0; border-radius:0; color:#000;
+}
+html.legacy #healthBadge.green { color:#008000; }
+html.legacy #healthBadge.watch { color:#804000; }
+html.legacy #healthBadge.red { color:#c00000; }
+html.legacy #status { background:#c0c0c0; border-top:2px solid #ffffff; color:#000; }
+html.legacy #status .ok { color:#008000; }
+html.legacy #status .bad { color:#c00000; }
+html.legacy #status .credit { color:#0000cc; text-decoration:underline; border-bottom:none; }
+html.legacy #clock { color:#000; }
+html.legacy #offline { background:#7d1622; color:#fff; }
+html.legacy .card {
+  background:#ffffff; border-radius:0;
+  border:2px solid; border-color:#ffffff #808080 #808080 #ffffff; /* raised */
+}
+html.legacy .card .label { color:#404040; }
+html.legacy .card .value { color:#000; }
+html.legacy .card .value small { color:#404040; }
+html.legacy .card.alert-warn { border-color:#d29922; }
+html.legacy .card.alert-red { border-color:#f85149; }
+html.legacy .panel {
+  background:#c0c0c0; border-radius:0;
+  border:2px solid; border-color:#ffffff #808080 #808080 #ffffff; /* raised */
+}
+html.legacy .panel h2 { color:#000080; border-bottom:1px solid #808080; }
+html.legacy .panel h2 .sub, html.legacy .panel .dim, html.legacy .rowex .k { color:#404040; }
+html.legacy .donut-bg { stroke:#808080; }
+html.legacy .donut-center { fill:#000; }
+html.legacy .mini-donut .bg { stroke:#808080; }
+html.legacy .bar { background:#ffffff; border-radius:0; border:1px inset #c0c0c0; }
+html.legacy .core .track { background:#ffffff; border-radius:0; border:1px inset #c0c0c0; }
+html.legacy .core .num { color:#404040; }
+html.legacy .core .hist, html.legacy .mini-spark { background:#ffffff; border:1px solid #808080; border-radius:0; }
+html.legacy .fc { color:#404040; }
+html.legacy .fc-warm { color:#804000; }
+html.legacy .fc-hot { color:#c00000; }
+html.legacy table.data th { color:#000; border-bottom:1px solid #808080; }
+html.legacy table.data td { border-bottom:1px solid #e0e0e0; }
+html.legacy #procTable th.sorted { color:#000080; }
+html.legacy #procFilter { background:#ffffff; color:#000; border:1px inset #c0c0c0; border-radius:0; }
+html.legacy #procRowCount { color:#404040; }
+html.legacy td.cpu-hot { color:#c00000; }
+html.legacy td.cpu-warm { color:#804000; }
+html.legacy #kioskExit {
+  background:#c0c0c0; color:#000; border:2px solid;
+  border-color:#ffffff #808080 #808080 #ffffff; border-radius:0; font-family:inherit;
+}
+html.legacy #kioskExit:hover { background:#e0e0e0; }
 </style>
 </head>
 <body class="dashboard">
@@ -253,8 +347,10 @@ tr.alert-red td { color:#f85149; }
     <button id="dlBtn" title="download snapshot JSON">&#8681;</button>
     <button id="fsBtn" title="full screen">fullscreen</button>
     <button id="kioskBtn" title="kiosk mode">kiosk</button>
+    <button id="themeBtn" title="switch to the retro legacy theme">legacy</button>
   </div>
 </header>
+<button id="kioskExit" title="leave kiosk and full-screen mode">&#10006;&nbsp;exit</button>
 <div id="offline">offline &mdash; reconnecting&hellip;</div>
 
 <div class="wrap">
@@ -382,7 +478,7 @@ tr.alert-red td { color:#f85149; }
   <span id="lagVal" class="mono"></span>
   &middot; <span id="clock" class="mono"></span>
   &middot; <span id="markInfo" class="dim"></span>
-  &middot; <span class="hint dim">press <b>F</b> fullscreen, <b>K</b> kiosk, <b>M</b> mark, <b>Shift+M</b> clear marks</span>
+  &middot; <span class="hint dim">press <b>F</b> fullscreen, <b>K</b> kiosk, <b>M</b> mark, <b>Shift+M</b> clear marks, <b>Esc</b> leave kiosk</span>
   &middot; <a class="credit" href="https://ndcompany.in" target="_blank" rel="noopener">a N&amp;D Co tool</a>
 </div>
 
@@ -437,7 +533,8 @@ tr.alert-red td { color:#f85149; }
   var PREF_INT = "sysview.interval",
       PREF_SORT = "sysview.sort",
       PREF_DIR = "sysview.sortdir",
-      PREF_FILTER = "sysview.filter";
+      PREF_FILTER = "sysview.filter",
+      PREF_THEME = "sysview.theme";
 
   /* Client-local rolling buffers (zero server memory) for the header load
      spark and per-interface / per-sensor mini trends. The server already
@@ -1252,17 +1349,30 @@ tr.alert-red td { color:#f85149; }
             document.mozFullScreenElement || null);
   }
   function requestFs() {
-    var el = document.documentElement;
-    if (el.requestFullscreen) el.requestFullscreen();
-    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
-    else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    /* Some kiosk webviews reject fullscreen (sync throw or, on modern
+       browsers, a rejected promise); kiosk mode must still work either way,
+       so both are contained. ES5-safe: .catch is only called when present. */
+    try {
+      var p = null;
+      var el = document.documentElement;
+      if (el.requestFullscreen) p = el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) p = el.webkitRequestFullscreen();
+      else if (el.mozRequestFullScreen) p = el.mozRequestFullScreen();
+      else if (el.msRequestFullscreen) p = el.msRequestFullscreen();
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
   }
   function exitFs() {
-    if (document.exitFullscreen) document.exitFullscreen();
-    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
-    else if (document.msExitFullscreen) document.msExitFullscreen();
+    /* Older browsers / non-fullscreen documents can throw (or reject); exiting
+       kiosk must never depend on the fullscreen API succeeding. */
+    try {
+      var p = null;
+      if (document.exitFullscreen) p = document.exitFullscreen();
+      else if (document.webkitExitFullscreen) p = document.webkitExitFullscreen();
+      else if (document.mozCancelFullScreen) p = document.mozCancelFullScreen();
+      else if (document.msExitFullscreen) p = document.msExitFullscreen();
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
   }
   function toggleFs() {
     if (fsEl()) exitFs(); else requestFs();
@@ -1289,6 +1399,35 @@ tr.alert-red td { color:#f85149; }
       requestFs();
     }
   }
+  /* On-screen escape for kiosk / full-screen (no keyboard needed on the
+     wall display). Exits both modes and wakes the UI. */
+  function exitKiosk() {
+    var b = document.body;
+    if (b.className.indexOf("kiosk") >= 0) {
+      b.className = b.className.replace(/\bkiosk\b/g, "").replace(/\s+/g, " ").trim();
+    }
+    exitFs();
+    kioskWake();
+  }
+
+  /* ---------------- theme: modern (default) / legacy retro ---------------- */
+  function isLegacy() {
+    return document.documentElement.className.indexOf("legacy") >= 0;
+  }
+  function themeApply(legacy) {
+    var de = document.documentElement;
+    var btn = $("themeBtn");
+    if (legacy) {
+      de.className = (de.className.replace(/\blegacy\b/g, "") + " legacy").trim();
+      store.set(PREF_THEME, "legacy");
+      if (btn) btn.textContent = "modern";
+    } else {
+      de.className = de.className.replace(/\blegacy\b/g, "").replace(/\s+/g, " ").trim();
+      store.set(PREF_THEME, "modern");
+      if (btn) btn.textContent = "legacy";
+    }
+  }
+  function toggleTheme() { themeApply(!isLegacy()); }
 
   /* ---------------- keyboard shortcuts ---------------- */
   function onKey(e) {
@@ -1297,6 +1436,7 @@ tr.alert-red td { color:#f85149; }
     else if (k === "k") toggleKiosk();
     else if (k === "p") togglePause();
     else if (k === "m") dropMark(e.shiftKey);
+    else if (k === "escape") exitKiosk();
   }
   /* M: drop a vertical timeline marker; Shift+M: clear all. Markers are
      persisted to localStorage so they survive reloads (like other prefs). */
@@ -1399,6 +1539,8 @@ tr.alert-red td { color:#f85149; }
     bindSort(); highlightSort();
     $("fsBtn").addEventListener("click", toggleFs);
     $("kioskBtn").addEventListener("click", toggleKiosk);
+    $("themeBtn").addEventListener("click", toggleTheme);
+    $("kioskExit").addEventListener("click", exitKiosk);
     $("pauseBtn").addEventListener("click", togglePause);
     $("dlBtn").addEventListener("click", downloadSnapshot);
     $("intervalSel").addEventListener("change", function () {
@@ -1424,6 +1566,9 @@ tr.alert-red td { color:#f85149; }
     });
     kioskOnBoot();
     kioskWake();
+    /* apply the persisted / URL theme; head script already pre-painted it,
+       this just syncs the button label and saved pref */
+    themeApply((location.search.indexOf("legacy") >= 0) || store.get(PREF_THEME, "") === "legacy");
     setInterval(tickClock, 1000);
     tickClock();
     fitAllCanvases();

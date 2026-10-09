@@ -37,7 +37,8 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.1.3",
+      "softwareVersion": "0.1.4",
+      "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "license": "https://github.com/OCEANOFANYTHING/sysview/blob/main/LICENSE",
@@ -92,8 +93,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.3 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.3 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -103,7 +104,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <span class="br-logo" aria-hidden="true">S</span>
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.1.3</span>
+      <span class="brand-ver">v0.1.4</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -113,6 +114,7 @@
       <a class="nav-btn" href="#deploy">Deploy 24/7</a>
       <a class="nav-btn" href="#metrics">Metrics</a>
       <a class="nav-btn" href="#faq">FAQ</a>
+      <a class="nav-btn" href="#releases">Releases</a>
       <a class="nav-btn" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">GitHub</a>
     </div>
   </nav>
@@ -131,7 +133,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.3 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.4 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -199,7 +201,7 @@
               <li>Live page embedded in the binary &mdash; no build step, no Node</li>
               <li>Per-core CPU sparklines, drawn crisply on HiDPI displays</li>
               <li>Shared 240-sample history across every connected device</li>
-              <li>Disk donuts, net/sensor mini-trends, kiosk mode, snapshot JSON download</li>
+              <li>Disk donuts, net/sensor mini-trends, kiosk mode with on-screen exit, retro legacy theme, snapshot JSON download</li>
             </ul>
           </div>
         </article>
@@ -486,6 +488,81 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
     </div>
   </section>
 
+  <!-- ============ RELEASES ============ -->
+  <section id="releases">
+    <div class="wrap">
+      <div class="win">
+        <div class="titlebar">[ RELEASES.TXT - VERSION HISTORY ]<span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span></div>
+        <div class="win-body">
+          <h2>&#9733; Every version, and what changed &#9733;</h2>
+          <p class="sub">The full, dated log lives in the repo
+            (<a href="https://github.com/OCEANOFANYTHING/sysview/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md</a>),
+            and every <a href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">GitHub Release</a>
+            carries the matching notes with binaries + checksums.</p>
+          <div class="table-wrap">
+            <table class="tbl">
+              <caption>sysview version history &mdash; newest first</caption>
+              <thead>
+                <tr><th style="width:16%;">Version</th><th style="width:15%;">Date</th><th>What changed</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>v0.1.4</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Kiosk escape.</b> An on-screen <i>Exit</i> button (bottom-right, fades while idle, wakes on touch/mouse) and the <code>Esc</code> key leave kiosk / full-screen mode &mdash; wall displays no longer need a keyboard.</li>
+                      <li><b>Legacy retro theme.</b> A <code>legacy</code> button in the header switches to a Windows-95 style UI (bevels, silver panels, navy title bar, MS Sans Serif); the same button becomes <code>modern</code> to switch back. The choice is remembered per browser and can be forced with <code>?legacy=1</code>. It is pure CSS &mdash; no extra requests or timers &mdash; so old tablets can run kiosk mode on it.</li>
+                      <li><b>Docs cleanup</b> in neutral operator language (no private example addresses) &mdash; and this very changelog.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
+                  <td><b>v0.1.3</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li>Dashboard status bar credits <b>N&amp;D Co &mdash; Brand &amp; Growth Agency</b> (single do-follow link to <code>ndcompany.in</code>); the same credit appears on the site.</li>
+                      <li>Site: brand-palette restyle, demo-data dashboard screenshot, stale docs fixed, measured 2&ndash;4 MB idle memory documented.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
+                  <td><b>v0.1.2</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Boot autostart:</b> the systemd unit is installed <code>enabled</code> with <code>Restart=always</code>, so the dashboard revives after reboots, crashes and <code>kill -9</code>; memory is capped at 256 MB.</li>
+                      <li>Per-core CPU charts rendered at device-pixel resolution (no more blur), with DPR-aware canvas sizing for every chart.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
+                  <td><b>v0.1.1</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li>Serving on <code>--bind 0.0.0.0</code> now prints the ready-to-open LAN URL with the access token; LAN-bind test coverage added.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
+                  <td><b>v0.1.0</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>First release:</b> terminal CLI + embedded web dashboard in one static binary; token auth on every route; Prometheus <code>/metrics</code> endpoint; hardened Debian/systemd installer; prebuilt binaries for Windows, Linux (static musl) and macOS (universal).</li>
+                    </ul>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============ FINAL CTA ============ -->
   <div class="stripe">
     <div class="wrap">
@@ -495,7 +572,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.3</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.4</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by

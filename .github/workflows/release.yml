@@ -82,6 +82,7 @@ jobs:
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -91,6 +92,12 @@ jobs:
           mv artifacts/macos/sysview-mac-universal .
           sha256sum sysview-linux-x86_64-musl sysview-windows-x86_64.exe sysview-mac-universal > SHA256SUMS
           cat SHA256SUMS
+      - name: Compose release notes from CHANGELOG
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          awk '/^## \[/ { if (index($0, "## [" TAG "]")) on = 1; else if (on) exit }
+               on { print }' TAG="$TAG" CHANGELOG.md > notes.md
+          printf '\n---\nFull changelog: https://github.com/OCEANOFANYTHING/sysview/blob/main/CHANGELOG.md\n' >> notes.md
       - uses: softprops/action-gh-release@v3
         with:
           files: |
@@ -98,4 +105,4 @@ jobs:
             sysview-windows-x86_64.exe
             sysview-mac-universal
             SHA256SUMS
-          generate_release_notes: true
+          body_path: notes.md

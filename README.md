@@ -19,6 +19,7 @@ Sponsored & developed by [N&D Co — Brand & Growth Agency](https://ndcompany.in
 - [Notes](#notes)
 - [Development](#development)
 - [Release history](#release-history)
+- [Changelog](CHANGELOG.md)
 
 ## Project layout
 
@@ -105,7 +106,8 @@ sysview serve --token s3cret             Require ?token=s3cret access
 ## Embedded web dashboard
 
 `sysview serve` starts a small HTTP server built into the binary (no node, no
-separate process) that serves a live, dark-theme monitoring page:
+separate process) that serves a live monitoring page (dark modern theme by
+default, with a one-click retro legacy theme):
 
 - Auto-refreshing gauges, charts/sparklines, and full stats (CPU, memory,
   disks, networks, sensors, processes), with per-core CPU bars and usage bars
@@ -169,6 +171,18 @@ separate process) that serves a live, dark-theme monitoring page:
   `--kiosk` starts every session in kiosk mode. In kiosk the status bar
   auto-dims after 8 s of inactivity, the clock is enlarged, and any
   touch/key/mouse wakes it.
+- **Kiosk escape:** while in kiosk / full-screen an **Exit** button floats at
+  the bottom-right — it is visible whenever the screen is awake, so it is easy
+  to hit on a touchscreen and impossible to miss with a mouse; it leaves
+  full-screen and kiosk together. Pressing `Esc` does the same. Wall displays
+  no longer need a keyboard to get out.
+- **Two themes:** the modern dark UI is the default; the header **legacy**
+  button flips to a Windows-95 style retro theme (bevels, silver panels, navy
+  title bar, MS Sans Serif) and turns into **modern** to switch back. The
+  choice is remembered per browser and can be forced with `?legacy=1`
+  (e.g. `http://host:8080/?token=<secret>&kiosk=1&legacy=1`). The theme is pure
+  CSS — no extra requests, no extra timers — so it stays light and runs fine on
+  old tablets used as kiosk displays.
 - Keyboard shortcuts: `F` fullscreen, `K` kiosk, `P` pause/resume, `M` drop a
   chart marker, `Shift+M` clear markers.
 - Works on old browsers (ES5, no CSS Grid — usable from Android 4 webviews).
@@ -261,7 +275,7 @@ or Wi-Fi at 1–2 s refresh.
 > | Access model | How | Remote reach |
 > |---|---|---|
 > | **Loopback + SSH tunnel** (default) | `sysview serve` (binds `127.0.0.1`); on the laptop keep `ssh -N -L 8080:127.0.0.1:8080 user@server` running | Only inside the encrypted tunnel — no port is open on the server at all. Best when you are the only viewer. |
-> | **All interfaces + firewall + token** | `sysview serve --bind 0.0.0.0 --token <secret>`; allow the chosen port through a host firewall (`ufw allow 8080/tcp`). On startup the daemon prints the ready-to-open LAN URL with your token, e.g. `http://192.168.100.114:8080/?token=<secret>` | Anyone allowed by the firewall can reach the port, but only with the token via `?token=<secret>` or an `Authorization: Bearer` header. Use when wall displays / several machines need direct access. |
+> | **All interfaces + firewall + token** | `sysview serve --bind 0.0.0.0 --token <secret>`; allow the chosen port through a host firewall (`ufw allow 8080/tcp`). On startup the daemon prints the ready-to-open LAN URL with the access token, e.g. `http://<lan-ip>:8080/?token=<secret>` | Anyone allowed by the firewall can reach the port, but only with the token via `?token=<secret>` or an `Authorization: Bearer` header. Use when wall displays / several machines need direct access. |
 >
 > The `--token` gate applies to **every** endpoint (`/`, `/api/snapshot`,
 > `/metrics`, `/health`, favicon included) with a constant-time compare, and
@@ -279,7 +293,7 @@ file is what you deploy on a server. The repo also ships two scripts: build
 headless install over SSH is three commands:
 
 ```bash
-# from your workstation (download sysview-linux-x86_64-musl + setup-debian.sh first)
+# from any workstation (download sysview-linux-x86_64-musl + setup-debian.sh first)
 scp sysview-linux-x86_64-musl scripts/setup-debian.sh root@server:/tmp/
 ssh root@server 'bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64-musl'
 ```
@@ -301,7 +315,7 @@ forward it:
 
 ```bash
 BIND=127.0.0.1 bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64-musl
-# on your workstation, keep this running:
+# on the workstation, keep this running:
 ssh -N -L 8080:127.0.0.1:8080 user@server
 # then open http://localhost:8080/?token=<secret>
 ```
@@ -380,10 +394,9 @@ and `/proc/diskstats` from the sampler, which they are needed for, and
 `MemoryDenyWriteExecute` could not be demonstrated compatible on a real host
 in this project's testing, so it is left for operators to enable if they can
 verify it. On the non-loopback model, allow the chosen port through a host
-firewall: `ufw allow 8080/tcp`. Verify the binary you download against
-`SHA256SUMS` on the Release page rather than a hash pinned in this doc — it
-changes with every release (the current v0.1.3 musl build is
-`27b376a6dd7a8a8dedb27a744bf2ae56fb4abd5493fe0a4c9cb5a80036363af1`).
+firewall: `ufw allow 8080/tcp`. Always verify a downloaded binary against the
+`SHA256SUMS` file attached to that release — hashes change with every release,
+so they are never pinned in this doc.
 
 ## Options
 
@@ -451,7 +464,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.3 && git push origin v0.1.3
+git tag v0.1.4 && git push origin v0.1.4
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -462,9 +475,11 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.1.4** | Kiosk escape button (and `Esc`) so wall displays don't need a keyboard; **legacy** retro theme with one-click switch back to **modern** (persisted, `?legacy=1`); full per-version changelog ([CHANGELOG.md](CHANGELOG.md)) now mirrored on the site's Releases section; docs language cleaned up (neutral operator wording, no private example addresses). |
 | **v0.1.3** | Dashboard status bar credits N&D Co — Brand & Growth Agency (single do-follow link to ndcompany.in); same credit on the project site. |
 | **v0.1.2** | Boot autostart for the systemd installer (`Restart=always`, verified `enabled` at boot, 256 MB memory ceiling). Per-core CPU charts rendered at device-pixel resolution — the "bottom blue graphs" are no longer blurry — and DPR-aware canvas sizing for every chart. |
-| **v0.1.1** | On `--bind 0.0.0.0` the startup banner prints the ready-to-open LAN URL with your token (`http://<lan-ip>:<port>/?token=…`); LAN-bind test coverage. |
+| **v0.1.1** | On `--bind 0.0.0.0` the startup banner prints the ready-to-open LAN URL with the access token (`http://<lan-ip>:<port>/?token=…`); LAN-bind test coverage. |
 | **v0.1.0** | First release: terminal CLI + embedded dashboard, token auth on every route, `/metrics`, hardened Debian/systemd installer. |
 
-Full per-release notes and assets: [Releases](https://github.com/OCEANOFANYTHING/sysview/releases).
+Full per-release notes and assets: [Releases](https://github.com/OCEANOFANYTHING/sysview/releases) ·
+chronological change log: [CHANGELOG.md](CHANGELOG.md).

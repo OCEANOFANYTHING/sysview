@@ -556,6 +556,8 @@ code, .mono {
   white-space: nowrap;
 }
 .tbl caption, .tbl td.val { text-align: left; }
+ul.rel { margin: 0; padding-left: 18px; }
+ul.rel li { margin: 3px 0; }
 
 /* ============ FAQ ============ */
 .faq { display: grid; gap: 14px; max-width: 820px; }
