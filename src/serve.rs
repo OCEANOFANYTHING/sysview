@@ -26,7 +26,8 @@
 //!
 //! Security model:
 //! - Default bind is loopback (`127.0.0.1`); remote access requires an
-//!   explicit `--bind 0.0.0.0`.
+//!   explicit `--bind 0.0.0.0`. When bound beyond loopback the daemon prints
+//!   the LAN URL (`http://<this-host-ip>:<port>/`) to open from any device.
 //! - Optional `--token <t>` auth on every route (constant-time compare),
 //!   via `?token=<t>` in the query string or `Authorization: Bearer <t>`.
 //! - Only `GET`/`HEAD` are answered (405 otherwise); malformed request lines
@@ -38,7 +39,7 @@
 
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -143,6 +144,26 @@ fn mark_watching(shared: &Shared) {
     }
 }
 
+/// True when the bind address exposes the dashboard beyond loopback (i.e.
+/// any device on the network can attempt a connection).
+fn is_lan_bind(bind: &str) -> bool {
+    !matches!(bind, "127.0.0.1" | "::1" | "localhost")
+}
+
+/// Best-effort guess of this host's primary LAN IPv4, via the classic
+/// route-discovery trick: a UDP `connect` only selects the egress interface
+/// (no packet is ever sent), so `local_addr` reveals the address the kernel
+/// would use to reach the peer. `None` when there is no usable route — the
+/// daemon still runs, the LAN hint just falls back to a generic line.
+fn detected_lan_ipv4() -> Option<Ipv4Addr> {
+    let sock = UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    sock.connect(("8.8.8.8", 80)).ok()?;
+    match sock.local_addr().ok()? {
+        SocketAddr::V4(v4) if !v4.ip().is_loopback() => Some(*v4.ip()),
+        _ => None,
+    }
+}
+
 /// Starts the dashboard server and blocks forever (until interrupted).
 pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
     let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port))?;
@@ -160,6 +181,23 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
     );
     println!("  sampling pauses while no dashboard is open (near-zero memory) and");
     println!("  auto-resumes on connect; the shared history window is preserved.");
+    if is_lan_bind(&cfg.bind) {
+        let suffix = cfg
+            .token
+            .as_deref()
+            .map(|t| format!("?token={t}"))
+            .unwrap_or_default();
+        match detected_lan_ipv4() {
+            Some(ip) => {
+                println!("  reachable from any device on the network:");
+                println!("    http://{ip}:{}/{}", cfg.port, suffix);
+            }
+            None => {
+                println!("  bound on all interfaces — open it from any device at");
+                println!("    http://<this-host-ip>:{}/{}", cfg.port, suffix);
+            }
+        }
+    }
     if !has_auth && cfg.bind != "127.0.0.1" {
         println!(
             "  WARNING: no token set and binding {}. Anyone who can reach",
@@ -1305,6 +1343,39 @@ mod tests {
     }
 
     #[test]
+    fn lan_bind_only_for_remote_addresses() {
+        assert!(is_lan_bind("0.0.0.0"));
+        assert!(is_lan_bind("192.168.1.2"));
+        assert!(!is_lan_bind("127.0.0.1"));
+        assert!(!is_lan_bind("::1"));
+        assert!(!is_lan_bind("localhost"));
+    }
+
+    #[test]
+    fn lan_bind_serves_authed_requests() {
+        let (addr, server, stop, handle) = start_test_server_on("0.0.0.0", Some("sekret"));
+        // The wildcard listener covers all interfaces; loopback reaches it.
+        let via = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), addr.port());
+        wait_for_payload(via, &server, Some("sekret"), "LAN-bound payload");
+        // Right after a wake the first snapshot can 503 once while the payload
+        // rebuilds; keep polling (each poll re-arms the sampler) for live data.
+        wait_until("LAN snapshot 200", Duration::from_secs(10), || {
+            http_get(via, "/api/snapshot?token=sekret").status == 200
+        });
+        let ok = http_get(via, "/api/snapshot?token=sekret");
+        assert_eq!(ok.status, 200);
+        let page = http_get(via, "/?token=sekret");
+        assert_eq!(page.status, 200);
+        assert!(String::from_utf8_lossy(&page.body).contains("dashboard"));
+        let denied = http_get(via, "/api/snapshot");
+        assert_eq!(denied.status, 401);
+        let wrong = http_get_with_auth(via, "/api/snapshot", "Authorization: Bearer nope");
+        assert_eq!(wrong.status, 401);
+        stop.store(true, Ordering::Relaxed);
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn history_ring_caps_and_stays_in_lockstep() {
         let mut ring = HistoryRing::new();
         assert_eq!(ring.to_web().cpu.len(), 0);
@@ -1548,10 +1619,10 @@ mod tests {
         }
     }
 
-    /// Binds a loopback listener on an ephemeral port and runs the full
-    /// server (sampler + accept loop) against it. Returns the bound address,
-    /// the shared server (test accessors), the stop flag and the accept-loop
-    /// thread handle.
+    /// Binds a listener on an ephemeral port (loopback unless `bind` says
+    /// otherwise) and runs the full server (sampler + accept loop) against
+    /// it. Returns the bound address, the shared server (test accessors),
+    /// the stop flag and the accept-loop thread handle.
     fn start_test_server(
         auth: Option<&str>,
     ) -> (
@@ -1560,10 +1631,24 @@ mod tests {
         Arc<AtomicBool>,
         thread::JoinHandle<()>,
     ) {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        start_test_server_on("127.0.0.1", auth)
+    }
+
+    /// Like [`start_test_server`] but with an explicit bind address, so the
+    /// wildcard (`0.0.0.0`) LAN path is exercised the same way loopback is.
+    fn start_test_server_on(
+        bind: &str,
+        auth: Option<&str>,
+    ) -> (
+        SocketAddr,
+        Arc<Server>,
+        Arc<AtomicBool>,
+        thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind((bind, 0)).expect("bind test listener");
         let local = listener.local_addr().expect("local addr");
         let cfg = ServeConfig {
-            bind: "127.0.0.1".to_string(),
+            bind: bind.to_string(),
             port: local.port(),
             interval_secs: 0.05,
             max_procs: 20,

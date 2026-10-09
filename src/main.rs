@@ -37,7 +37,7 @@ pub enum SortKey {
     name = "sysview",
     version,
     about = "Portable system stats viewer for Windows, Linux and macOS",
-    long_about = "One-shot system statistics viewer.\n\nExamples:\n  sysview                 Full overview\n  sysview cpu --json      CPU info as JSON\n  sysview procs --top 20  Top 20 processes by CPU\n  sysview serve           Web dashboard on :8080\n  sysview --watch --interval 1 --sort mem -r --top 15"
+    long_about = "One-shot system statistics viewer.\n\nExamples:\n  sysview                 Full overview\n  sysview cpu --json      CPU info as JSON\n  sysview procs --top 20  Top 20 processes by CPU\n  sysview serve           Web dashboard on :8080\n  sysview serve --bind 0.0.0.0 --token <secret>\n                          Dashboard open to the LAN from any device\n  sysview --watch --interval 1 --sort mem -r --top 15"
 )]
 pub struct Cli {
     /// Section to display (defaults to the full overview)

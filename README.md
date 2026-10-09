@@ -242,7 +242,7 @@ or Wi-Fi at 1–2 s refresh.
 > | Access model | How | Remote reach |
 > |---|---|---|
 > | **Loopback + SSH tunnel** (default) | `sysview serve` (binds `127.0.0.1`); on the laptop keep `ssh -N -L 8080:127.0.0.1:8080 user@server` running | Only inside the encrypted tunnel — no port is open on the server at all. Best when you are the only viewer. |
-> | **All interfaces + firewall + token** | `sysview serve --bind 0.0.0.0 --token <secret>`; allow the chosen port through a host firewall (`ufw allow 8080/tcp`) | Anyone allowed by the firewall can reach the port, but only with the token via `?token=<secret>` or an `Authorization: Bearer` header. Use when wall displays / several machines need direct access. |
+> | **All interfaces + firewall + token** | `sysview serve --bind 0.0.0.0 --token <secret>`; allow the chosen port through a host firewall (`ufw allow 8080/tcp`). On startup the daemon prints the ready-to-open LAN URL with your token, e.g. `http://192.168.100.114:8080/?token=<secret>` | Anyone allowed by the firewall can reach the port, but only with the token via `?token=<secret>` or an `Authorization: Bearer` header. Use when wall displays / several machines need direct access. |
 >
 > The `--token` gate applies to **every** endpoint (`/`, `/api/snapshot`,
 > `/metrics`, `/health`, favicon included) with a constant-time compare, and
@@ -425,7 +425,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.1.1 && git push origin v0.1.1
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
