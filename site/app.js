@@ -1,4 +1,4 @@
-/* sysview site — no dependencies, ES5-friendly */
+/* sysview site — no dependencies, ES5-friendly, 1997-compliant */
 (function () {
   "use strict";
 
@@ -74,12 +74,14 @@
     });
   }
 
-  /* ---- back-to-top ---- */
-  var topLink = document.querySelector(".toplink");
-  if (topLink) {
-    window.addEventListener("scroll", function () {
-      topLink.hidden = window.scrollY < 600;
-    }, { passive: true });
+  /* ---- Win95 taskbar clock ---- */
+  var clock = document.getElementById("tbClock");
+  if (clock) {
+    function tick() {
+      clock.textContent = new Date().toLocaleTimeString();
+    }
+    tick();
+    setInterval(tick, 1000);
   }
 
   /* ---- year ---- */
