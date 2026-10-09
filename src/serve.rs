@@ -1100,10 +1100,10 @@ fn handle_conn(
             "/favicon.ico" => {
                 respond(
                     &mut stream,
-                    "204 No Content",
-                    "image/x-icon",
-                    b"",
-                    true,
+                    "200 OK",
+                    "image/png",
+                    include_bytes!("../web/favicon-32.png"),
+                    method == "HEAD",
                     keep,
                 );
             }

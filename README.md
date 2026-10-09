@@ -464,7 +464,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.4 && git push origin v0.1.4
+git tag v0.1.5 && git push origin v0.1.5
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -475,6 +475,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.1.5** | Real sysview logo everywhere: site favicon + apple-touch icon + nav mark + hero masthead, and the dashboard serves the icon at `/favicon.ico` from a ~1.7 KB embedded PNG (the binary stays light). New demo-data legacy-theme screenshot on the site so you can see the retro look before downloading. |
 | **v0.1.4** | Kiosk escape button (and `Esc`) so wall displays don't need a keyboard; **legacy** retro theme with one-click switch back to **modern** (persisted, `?legacy=1`); full per-version changelog ([CHANGELOG.md](CHANGELOG.md)) now mirrored on the site's Releases section; docs language cleaned up (neutral operator wording, no private example addresses). |
 | **v0.1.3** | Dashboard status bar credits N&D Co — Brand & Growth Agency (single do-follow link to ndcompany.in); same credit on the project site. |
 | **v0.1.2** | Boot autostart for the systemd installer (`Restart=always`, verified `enabled` at boot, 256 MB memory ceiling). Per-core CPU charts rendered at device-pixel resolution — the "bottom blue graphs" are no longer blurry — and DPR-aware canvas sizing for every chart. |

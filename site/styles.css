@@ -281,6 +281,13 @@ code, .mono {
   line-height: 17px;
   text-align: center;
 }
+.brand img.br-logo {
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid #000;
+  vertical-align: middle;
+}
 .brand-ver {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -313,6 +320,12 @@ code, .mono {
 /* ============ hero ============ */
 .hero { padding: 40px 0 8px; }
 .hero-inner { text-align: center; }
+.hero-logo {
+  display: block;
+  margin: 0 auto 20px;
+  max-width: 100%;
+  height: auto;
+}
 .hero-badge {
   display: inline-block;
   background: var(--yellow);

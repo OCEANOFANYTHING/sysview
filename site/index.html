@@ -9,7 +9,9 @@
 <meta name="author" content="N&amp;D Co — Brand &amp; Growth Agency">
 <meta name="theme-color" content="#c0c0c0">
 <link rel="canonical" href="https://oceanofanything.github.io/sysview/">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' fill='%23000080'/%3E%3Cpath d='M2 2 L30 2 L30 30 L2 30 Z' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='Arial Black' font-size='16' font-weight='900' fill='%23ffffff' text-anchor='middle'%3ES%3C/text%3E%3Crect x='2' y='2' width='6' height='6' fill='%23ff0000'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
 <link rel="stylesheet" href="styles.css">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="sysview">
@@ -37,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.1.4",
+      "softwareVersion": "0.1.5",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -93,8 +95,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.5 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.5 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -102,9 +104,9 @@
 <header class="nav" id="nav">
   <nav class="nav-inner">
     <a class="brand" href="#top" aria-label="sysview home">
-      <span class="br-logo" aria-hidden="true">S</span>
+      <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.1.4</span>
+      <span class="brand-ver">v0.1.5</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -125,6 +127,7 @@
   <!-- ============ HERO ============ -->
   <section class="hero" id="top">
     <div class="wrap hero-inner">
+      <img class="hero-logo" src="assets/hero-logo.png" width="660" height="264" alt="sysview — system stats at a glance (logo)">
       <span class="hero-badge">&#9733; welcome to the sysview home page &#9733;</span>
       <h1>System stats<br><span class="rainbow">at a glance!</span></h1>
       <p class="lede">Sysview is a portable, one-shot system stats viewer for
@@ -133,7 +136,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.4 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.5 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -157,6 +160,18 @@
           <img src="assets/sysview-dashboard.png" width="800" height="898" alt="sysview web dashboard with demo data: CPU, per-core usage, memory, disk and network panels">
           <p class="cap">LIVE DASHBOARD, SERVED BY <code>sysview serve</code> &mdash; ONE SELF-CONTAINED PAGE, NOTHING TO INSTALL.
           HOSTNAME SHOWN IS FAKE, FOR THE DEMO SHOT.</p>
+        </div>
+      </figure>
+    </div>
+
+    <div class="wrap">
+      <figure class="shot-win">
+        <div class="titlebar">sysview.exe - [system dashboard :: LEGACY THEME :: http://srv-01:8080/?token=&#9679;&#9679;&#9679;&#9679;]
+          <span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span>
+        </div>
+        <div class="win-body">
+          <img src="assets/sysview-legacy-dashboard.png" width="800" height="1468" alt="sysview web dashboard in the legacy retro theme with demo data: silver bevels, navy title bar and classic panels">
+          <p class="cap">THE SAME DASHBOARD IN THE LEGACY RETRO THEME &mdash; PRESS <code>LEGACY</code> IN THE HEADER TO SWITCH, OR OPEN IT DIRECTLY WITH <code>?legacy=1</code>. PURE CSS, NO EXTRA REQUESTS. DEMO DATA.</p>
         </div>
       </figure>
     </div>
@@ -507,6 +522,16 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.1.5</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Brand assets everywhere.</b> The real sysview logo now brands the site (favicon, apple-touch icon, nav mark, hero masthead) and the tool itself &mdash; the dashboard serves a real icon at <code>/favicon.ico</code> from a ~1.7 KB embedded PNG, so the binary stays light.</li>
+                      <li><b>Legacy theme demo.</b> A new demo-data screenshot of the retro dashboard up top, so you can see the <code>legacy</code> look before you download.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.1.4</b></td>
                   <td>2026-10-09</td>
                   <td>
@@ -572,7 +597,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.4</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.5</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by

@@ -3,8 +3,27 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.1.4` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.1.5` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.1.5] - 2026-10-09
+
+### Added
+
+- **Brand assets.** The real sysview logo now ships everywhere. The site gets a
+  32 px favicon, a 180 px apple-touch icon, the logo in the nav and a wide hero
+  masthead — all small PNG derivatives of the master artwork — and the
+  dashboard serves a real icon at `/favicon.ico` from a ~1.7 KB PNG embedded
+  in the binary. Branding without a weight penalty.
+- **Legacy theme showcase.** The site now shows a full demo-data screenshot of
+  the retro/legacy dashboard right below the modern one, so visitors can see
+  the theme before they download. Demo data again — no real host values on the
+  page.
+
+### Changed
+
+- The dashboard HTML links `favicon.ico` and the server answers `200 OK` with
+  the icon bytes instead of an empty `204 No Content`.
 
 ## [v0.1.4] - 2026-10-09
 
