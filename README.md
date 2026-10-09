@@ -419,7 +419,7 @@ so they are never pinned in this doc.
 | Flag | Meaning |
 |---|---|
 | `--port <n>` | HTTP port (default 8080) |
-| `--bind <addr>` | Address to bind (default `127.0.0.1` loopback; use `0.0.0.0` for remote) |
+| `--bind <addr>` | Address to bind (default `127.0.0.1` loopback; use `0.0.0.0` for remote, or a specific LAN IP like `192.168.100.114`). If the address isn't on any interface yet — e.g. right after boot, before Wi-Fi/DHCP has an IP — `serve` waits up to 30 s for it and then binds, so a pinned address survives reboots |
 | `--max-procs <n>` | Max processes sent to the dashboard (default 100) |
 | `--token <secret>` | Require `?token=<secret>` or `Authorization: Bearer` |
 | `--kiosk` | Start in kiosk mode (fullscreen, minimal chrome) |
@@ -464,7 +464,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.5 && git push origin v0.1.5
+git tag v0.1.6 && git push origin v0.1.6
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -475,6 +475,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.1.6** | Reboot-proof binds: when a specific bind address isn't on any interface yet (Wi-Fi/DHCP still coming up right after boot), `serve` waits up to 30 s for it instead of crash-looping — so a pinned `--bind <lan-ip>` URL survives reboots cleanly. The live dashboard now binds to one stable address on the server. |
 | **v0.1.5** | Real sysview logo everywhere: site favicon + apple-touch icon + nav mark + hero masthead, and the dashboard serves the icon at `/favicon.ico` from a ~1.7 KB embedded PNG (the binary stays light). New demo-data legacy-theme screenshot on the site so you can see the retro look before downloading. |
 | **v0.1.4** | Kiosk escape button (and `Esc`) so wall displays don't need a keyboard; **legacy** retro theme with one-click switch back to **modern** (persisted, `?legacy=1`); full per-version changelog ([CHANGELOG.md](CHANGELOG.md)) now mirrored on the site's Releases section; docs language cleaned up (neutral operator wording, no private example addresses). |
 | **v0.1.3** | Dashboard status bar credits N&D Co — Brand & Growth Agency (single do-follow link to ndcompany.in); same credit on the project site. |

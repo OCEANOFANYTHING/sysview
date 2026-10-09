@@ -3,8 +3,20 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.1.5` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.1.6` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.1.6] - 2026-10-09
+
+### Added
+
+- **Reboot-proof binds.** When a specific bind address is not assigned to any
+  interface yet — the classic "systemd beat the Wi-Fi/DHCP to the punch" moment
+  right after a reboot — `serve` now waits up to 30 seconds for the address to
+  appear (retrying every 2 s, with a note printed to the journal) instead of
+  exiting and crash-looping under `Restart=always`. Everything else (port in
+  use, permission denied) still fails fast. A pinned bind like
+  `--bind 192.168.100.114` now survives boot cleanly.
 
 ## [v0.1.5] - 2026-10-09
 

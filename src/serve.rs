@@ -164,9 +164,48 @@ fn detected_lan_ipv4() -> Option<Ipv4Addr> {
     }
 }
 
+/// How long `serve` keeps retrying when the bind address is not assigned to
+/// any interface *yet*. Right after a reboot the systemd unit starts once
+/// `network-online.target` is reached, but on Wi-Fi/DHCP the NIC can still be
+/// without its IP for a while — so instead of exiting and crash-looping under
+/// `Restart=always`, the daemon waits here until the address appears (or the
+/// window runs out and the binder reports the original error).
+const BIND_NETWORK_WAIT_SECS: u64 = 30;
+const BIND_NETWORK_WAIT_STEP_SECS: u64 = 2;
+
+/// True when a failed bind should be retried: the requested address does not
+/// exist on any interface yet (`EADDRNOTAVAIL`). Everything else — port in
+/// use, permissions, bad syntax — fails fast so the operator sees it now.
+fn should_retry_bind(err: &std::io::Error) -> bool {
+    matches!(err.kind(), std::io::ErrorKind::AddrNotAvailable)
+}
+
+/// Binds the dashboard listener, waiting up to [`BIND_NETWORK_WAIT_SECS`]
+/// for the address to appear on an interface (reboot / late-IP case) before
+/// giving up with the original error.
+fn bind_listener(bind: &str, port: u16) -> std::io::Result<TcpListener> {
+    let deadline = Instant::now() + Duration::from_secs(BIND_NETWORK_WAIT_SECS);
+    let mut tries = 0u32;
+    loop {
+        match TcpListener::bind((bind, port)) {
+            Ok(listener) => return Ok(listener),
+            Err(err) if should_retry_bind(&err) && Instant::now() < deadline => {
+                tries += 1;
+                eprintln!(
+                    "note: {bind}:{port} is not on any interface yet \
+                     (network still coming up after boot?), retrying in \
+                     {BIND_NETWORK_WAIT_STEP_SECS}s — attempt {tries}"
+                );
+                thread::sleep(Duration::from_secs(BIND_NETWORK_WAIT_STEP_SECS));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
 /// Starts the dashboard server and blocks forever (until interrupted).
 pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
-    let listener = TcpListener::bind((cfg.bind.as_str(), cfg.port))?;
+    let listener = bind_listener(&cfg.bind, cfg.port)?;
     let local = listener.local_addr()?;
     let server = Server::start(&cfg)?;
 
@@ -1351,6 +1390,26 @@ mod tests {
         assert!(!is_lan_bind("127.0.0.1"));
         assert!(!is_lan_bind("::1"));
         assert!(!is_lan_bind("localhost"));
+    }
+
+    #[test]
+    fn bind_retry_waits_only_for_a_missing_address() {
+        // The post-boot bind fails with EADDRNOTAVAIL while the NIC has no IP;
+        // that is the one case the daemon waits out (bounded), so a specific-IP
+        // bind survives reboots instead of crash-looping under Restart=always.
+        assert!(should_retry_bind(&std::io::Error::from(
+            std::io::ErrorKind::AddrNotAvailable
+        )));
+        // Everything else must fail fast so the operator sees it immediately.
+        assert!(!should_retry_bind(&std::io::Error::from(
+            std::io::ErrorKind::AddrInUse
+        )));
+        assert!(!should_retry_bind(&std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied
+        )));
+        assert!(!should_retry_bind(&std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused
+        )));
     }
 
     #[test]

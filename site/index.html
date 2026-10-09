@@ -39,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.1.5",
+      "softwareVersion": "0.1.6",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -95,8 +95,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.5 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.5 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.6 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.6 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -106,7 +106,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.1.5</span>
+      <span class="brand-ver">v0.1.6</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -136,7 +136,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.5 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.6 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -522,6 +522,15 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.1.6</b></td>
+                  <td>2026-10-09</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Reboot-proof binds.</b> When a specific bind address isn't on any interface yet (Wi-Fi/DHCP still coming up right after boot), <code>serve</code> now waits up to 30 s for it instead of exiting and crash-looping &mdash; so a pinned <code>--bind &lt;lan-ip&gt;</code> URL survives reboots cleanly, and the web dashboard on a rebooted machine comes back on its own.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.1.5</b></td>
                   <td>2026-10-09</td>
                   <td>
@@ -597,7 +606,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.5</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.6</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by
