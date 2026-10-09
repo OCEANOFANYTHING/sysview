@@ -16,20 +16,21 @@
 <meta property="og:title" content="sysview — system stats at a glance">
 <meta property="og:description" content="Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.">
 <meta property="og:url" content="https://oceanofanything.github.io/sysview/">
-<meta property="og:image" content="https://oceanofanything.github.io/sysview/assets/sysview-dashboard.png">
-<meta property="og:image:width" content="800">
-<meta property="og:image:height" content="898">
-<meta property="og:image:alt" content="sysview web dashboard showing CPU, per-core usage, memory, disk and network statistics with demo data">
+<meta property="og:image" content="https://oceanofanything.github.io/sysview/assets/sysview-og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="sysview — retro system stats banner: SYSVIEW wordmark, system stats at a glance, one binary with CLI, dashboard and Prometheus metrics">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="sysview — system stats at a glance">
 <meta name="twitter:description" content="Portable system stats viewer for Windows, Linux and macOS. One static binary: CLI, live dashboard and Prometheus metrics.">
-<meta name="twitter:image" content="https://oceanofanything.github.io/sysview/assets/sysview-dashboard.png">
+<meta name="twitter:image" content="https://oceanofanything.github.io/sysview/assets/sysview-og.png">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@graph": [
     {
       "@type": "SoftwareApplication",
+      "@id": "https://oceanofanything.github.io/sysview/#software",
       "name": "sysview",
       "alternateName": "sysview — system stats at a glance",
       "url": "https://oceanofanything.github.io/sysview/",
@@ -47,12 +48,24 @@
     },
     {
       "@type": "WebSite",
+      "@id": "https://oceanofanything.github.io/sysview/#website",
       "name": "sysview",
       "alternateName": "sysview — system stats at a glance",
       "url": "https://oceanofanything.github.io/sysview/"
     },
     {
+      "@type": "WebPage",
+      "@id": "https://oceanofanything.github.io/sysview/#webpage",
+      "url": "https://oceanofanything.github.io/sysview/",
+      "name": "sysview — system stats at a glance",
+      "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
+      "isPartOf": { "@id": "https://oceanofanything.github.io/sysview/#website" },
+      "about": { "@id": "https://oceanofanything.github.io/sysview/#software" },
+      "dateModified": "2026-10-09"
+    },
+    {
       "@type": "Organization",
+      "@id": "https://oceanofanything.github.io/sysview/#org",
       "name": "N&D Co — Brand & Growth Agency",
       "url": "https://ndcompany.in",
       "description": "A brand and growth agency."
@@ -381,24 +394,24 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Host</td><td class="m"><code>sysview_uptime_seconds</code></td><td class="g">172800</td></tr>
-                <tr><td>Host</td><td class="m"><code>sysview_load1</code> / <code>sysview_load5</code> / <code>sysview_load15</code></td><td class="g">0.42 / 0.38 / 0.35</td></tr>
-                <tr><td>Host</td><td class="m"><code>sysview_ts_seconds</code></td><td class="g">1792108800</td></tr>
-                <tr><td>CPU</td><td class="m"><code>sysview_cpu_usage_percent</code></td><td class="g">23.7</td></tr>
-                <tr><td>CPU</td><td class="m"><code>sysview_cpu_logical_cores</code></td><td class="g">12</td></tr>
-                <tr><td>Memory</td><td class="m"><code>sysview_memory_used_bytes</code></td><td class="g">12427878400</td></tr>
-                <tr><td>Memory</td><td class="m"><code>sysview_memory_used_percent</code></td><td class="g">33.7</td></tr>
-                <tr><td>Memory</td><td class="m"><code>sysview_swap_used_bytes</code></td><td class="g">4294967296</td></tr>
-                <tr><td>Disk</td><td class="m"><code>sysview_disk_total_bytes{mount="/"}</code></td><td class="g">99965337600</td></tr>
-                <tr><td>Disk</td><td class="m"><code>sysview_disk_used_bytes{mount="/"}</code></td><td class="g">44984401920</td></tr>
-                <tr><td>Disk</td><td class="m"><code>sysview_disk_used_percent{mount="/"}</code></td><td class="g">45.0</td></tr>
-                <tr><td>Disk</td><td class="m"><code>sysview_disk_read_bps{device="sda"}</code> / <code>sysview_disk_write_bps{device="sda"}</code></td><td class="g">524288 / 262144</td></tr>
-                <tr><td>Network</td><td class="m"><code>sysview_net_rx_bps{interface="eth0"}</code></td><td class="g">65536</td></tr>
-                <tr><td>Network</td><td class="m"><code>sysview_net_tx_bps{interface="eth0"}</code></td><td class="g">8192</td></tr>
-                <tr><td>Network</td><td class="m"><code>sysview_net_rx_bytes_total{interface="eth0"}</code></td><td class="g">4294967296</td></tr>
-                <tr><td>Network</td><td class="m"><code>sysview_net_tx_bytes_total{interface="eth0"}</code></td><td class="g">12884901888</td></tr>
-                <tr><td>Procs</td><td class="m"><code>sysview_processes</code></td><td class="g">96</td></tr>
-                <tr><td>Sensors</td><td class="m"><code>sysview_sensor_temperature_celsius{sensor="CPU Package"}</code></td><td class="g">47</td></tr>
+                <tr><td>Host</td><td class="m"><code>sysview_uptime_seconds</code></td><td class="val">172800</td></tr>
+                <tr><td>Host</td><td class="m"><code>sysview_load1</code> / <code>sysview_load5</code> / <code>sysview_load15</code></td><td class="val">0.42 / 0.38 / 0.35</td></tr>
+                <tr><td>Host</td><td class="m"><code>sysview_ts_seconds</code></td><td class="val">1792108800</td></tr>
+                <tr><td>CPU</td><td class="m"><code>sysview_cpu_usage_percent</code></td><td class="val">23.7</td></tr>
+                <tr><td>CPU</td><td class="m"><code>sysview_cpu_logical_cores</code></td><td class="val">12</td></tr>
+                <tr><td>Memory</td><td class="m"><code>sysview_memory_used_bytes</code></td><td class="val">12427878400</td></tr>
+                <tr><td>Memory</td><td class="m"><code>sysview_memory_used_percent</code></td><td class="val">33.7</td></tr>
+                <tr><td>Memory</td><td class="m"><code>sysview_swap_used_bytes</code></td><td class="val">4294967296</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_total_bytes{mount="/"}</code></td><td class="val">99965337600</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_used_bytes{mount="/"}</code></td><td class="val">44984401920</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_used_percent{mount="/"}</code></td><td class="val">45.0</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_read_bps{device="sda"}</code> / <code>sysview_disk_write_bps{device="sda"}</code></td><td class="val">524288 / 262144</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_rx_bps{interface="eth0"}</code></td><td class="val">65536</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_tx_bps{interface="eth0"}</code></td><td class="val">8192</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_rx_bytes_total{interface="eth0"}</code></td><td class="val">4294967296</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_tx_bytes_total{interface="eth0"}</code></td><td class="val">12884901888</td></tr>
+                <tr><td>Procs</td><td class="m"><code>sysview_processes</code></td><td class="val">96</td></tr>
+                <tr><td>Sensors</td><td class="m"><code>sysview_sensor_temperature_celsius{sensor="CPU Package"}</code></td><td class="val">47</td></tr>
               </tbody>
             </table>
           </div>
@@ -416,18 +429,6 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
       </div>
     </div>
   </section>
-
-  <div class="wrap"><div class="win" style="margin: 26px 0 10px;">
-    <div class="titlebar">[ RGB.EXE - 100% PURE COLOR TEST PATTERN ]<span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span></div>
-    <div class="win-body" style="text-align:center;">
-      <div class="rgb-grid" aria-hidden="true">
-        <span style="background:#ff0000;"></span><span style="background:#00ff00;"></span><span style="background:#0000ff;"></span>
-        <span style="background:#ffff00;"></span><span style="background:#00ffff;"></span><span style="background:#ff00ff;"></span>
-        <span style="background:#ffffff;"></span><span style="background:#000000;"></span><span style="background:#808080;"></span>
-      </div>
-      <p class="rgb-note">R G B | C M Y K? NO &mdash; RGB! &mdash; MAXIMUM SATURATION SINCE 1995</p>
-    </div>
-  </div></div>
 
   <hr class="hr">
 

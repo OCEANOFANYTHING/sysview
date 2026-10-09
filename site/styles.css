@@ -548,22 +548,14 @@ code, .mono {
 .tbl tbody tr:nth-child(odd) td { background: #e8e8e8; }
 .tbl tbody tr:nth-child(even) td { background: #ffffff; }
 .tbl td.m { font-family: var(--font-mono); font-size: 12px; }
-.tbl td.g { color: var(--green); font-family: var(--font-mono); font-weight: 700; }
-
-/* ============ RGB test pattern ============ */
-.rgb-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 96px);
-  gap: 12px;
-  justify-content: center;
-  padding: 16px 0 6px;
+.tbl td.val {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
 }
-.rgb-grid span {
-  height: 60px;
-  border: 2px solid #000;
-  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.3), inset 3px 3px 0 rgba(255, 255, 255, 0.35);
-}
-.rgb-note { text-align: center; font-family: var(--font-mono); font-size: 12px; }
+.tbl caption, .tbl td.val { text-align: left; }
 
 /* ============ FAQ ============ */
 .faq { display: grid; gap: 14px; max-width: 820px; }
@@ -736,8 +728,6 @@ code, .mono {
   }
   .nav-links.open { display: flex; }
   .nav-links .nav-btn { text-align: left; margin: 2px 0; }
-  .rgb-grid { grid-template-columns: repeat(3, 72px); }
-  .rgb-grid span { height: 48px; }
   .glyphs td:first-child { width: auto; }
 }
 
