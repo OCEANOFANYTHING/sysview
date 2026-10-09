@@ -91,7 +91,7 @@ jobs:
           mv artifacts/macos/sysview-mac-universal .
           sha256sum sysview-linux-x86_64-musl sysview-windows-x86_64.exe sysview-mac-universal > SHA256SUMS
           cat SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             sysview-linux-x86_64-musl
