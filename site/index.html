@@ -4,13 +4,73 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sysview — system stats at a glance (portable, browser, LAN)</title>
-<meta name="description" content="sysview is a portable one-shot system stats viewer for Windows, Linux and macOS. One static binary: a fast CLI overview, a live web dashboard, and Prometheus metrics — no runtime, no dependencies.">
+<meta name="description" content="Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.">
+<meta name="robots" content="index, follow">
+<meta name="author" content="N&amp;D Co — Brand &amp; Growth Agency">
 <meta name="theme-color" content="#c0c0c0">
-<meta property="og:title" content="sysview — system stats at a glance">
-<meta property="og:description" content="Portable one-shot system stats viewer: CLI, live web dashboard and Prometheus metrics in a single static binary.">
-<meta property="og:type" content="website">
+<link rel="canonical" href="https://oceanofanything.github.io/sysview/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' fill='%23000080'/%3E%3Cpath d='M2 2 L30 2 L30 30 L2 30 Z' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3Ctext x='16' y='22' font-family='Arial Black' font-size='16' font-weight='900' fill='%23ffffff' text-anchor='middle'%3ES%3C/text%3E%3Crect x='2' y='2' width='6' height='6' fill='%23ff0000'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="sysview">
+<meta property="og:title" content="sysview — system stats at a glance">
+<meta property="og:description" content="Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.">
+<meta property="og:url" content="https://oceanofanything.github.io/sysview/">
+<meta property="og:image" content="https://oceanofanything.github.io/sysview/assets/sysview-dashboard.png">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="898">
+<meta property="og:image:alt" content="sysview web dashboard showing CPU, per-core usage, memory, disk and network statistics with demo data">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="sysview — system stats at a glance">
+<meta name="twitter:description" content="Portable system stats viewer for Windows, Linux and macOS. One static binary: CLI, live dashboard and Prometheus metrics.">
+<meta name="twitter:image" content="https://oceanofanything.github.io/sysview/assets/sysview-dashboard.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "sysview",
+      "alternateName": "sysview — system stats at a glance",
+      "url": "https://oceanofanything.github.io/sysview/",
+      "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Windows, Linux, macOS",
+      "softwareVersion": "0.1.3",
+      "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
+      "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
+      "license": "https://github.com/OCEANOFANYTHING/sysview/blob/main/LICENSE",
+      "dateModified": "2026-10-09",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Organization", "name": "N&D Co — Brand & Growth Agency", "url": "https://ndcompany.in" },
+      "publisher": { "@type": "Organization", "name": "N&D Co — Brand & Growth Agency", "url": "https://ndcompany.in" }
+    },
+    {
+      "@type": "WebSite",
+      "name": "sysview",
+      "alternateName": "sysview — system stats at a glance",
+      "url": "https://oceanofanything.github.io/sysview/"
+    },
+    {
+      "@type": "Organization",
+      "name": "N&D Co — Brand & Growth Agency",
+      "url": "https://ndcompany.in",
+      "description": "A brand and growth agency."
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        { "@type": "Question", "name": "Does it need a runtime or an installer?", "acceptedAnswer": { "@type": "Answer", "text": "No. It's one self-contained static binary per platform. Download, chmod +x on Unix, run. No Node, no Python, no system packages." } },
+        { "@type": "Question", "name": "Is it safe to expose on my LAN?", "acceptedAnswer": { "@type": "Answer", "text": "The dashboard binds loopback by default and only listens on 0.0.0.0 when you ask it to. Set a token and every route returns 401 without it." } },
+        { "@type": "Question", "name": "How much memory does it really use?", "acceptedAnswer": { "@type": "Answer", "text": "Around 2 to 4 MB private RSS at idle on a headless Debian 13 server, and the sampler pauses after 30 seconds with no viewer." } },
+        { "@type": "Question", "name": "Will it come back after a reboot or crash?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The systemd unit is installed enabled with WantedBy=multi-user.target and Restart=always, so it starts after the network is online and revives within seconds of any crash." } },
+        { "@type": "Question", "name": "Does it have Prometheus support?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. /metrics on the same port, Prometheus text 0.0.4, token-protected, and decoded from the already-cached snapshot for zero per-poll allocations." } },
+        { "@type": "Question", "name": "What about HTTPS?", "acceptedAnswer": { "@type": "Answer", "text": "Put a reverse proxy such as nginx or Caddy in front of it for TLS. The service listens on a single port and speaks plain HTTP." } }
+      ]
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
@@ -79,7 +139,7 @@
           <span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span>
         </div>
         <div class="win-body">
-          <img src="assets/dashboard.png" alt="sysview web dashboard with demo data: CPU, per-core usage, memory, disk and network panels">
+          <img src="assets/sysview-dashboard.png" width="800" height="898" alt="sysview web dashboard with demo data: CPU, per-core usage, memory, disk and network panels">
           <p class="cap">LIVE DASHBOARD, SERVED BY <code>sysview serve</code> &mdash; ONE SELF-CONTAINED PAGE, NOTHING TO INSTALL.
           HOSTNAME SHOWN IS FAKE, FOR THE DEMO SHOT.</p>
         </div>
@@ -312,6 +372,7 @@
         <div class="win-body">
           <div class="table-wrap">
             <table class="tbl">
+              <caption>Metric reference for the Prometheus endpoint — example values, not live data</caption>
               <thead>
                 <tr>
                   <th scope="col">Group</th>
@@ -320,12 +381,24 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Host</td><td class="m"><code>sysview_uptime_seconds</code>, <code>sysview_load1/5/15</code>, <code>sysview_ts_seconds</code></td><td class="g">172800</td></tr>
-                <tr><td>CPU</td><td class="m"><code>sysview_cpu_usage_percent</code>, <code>sysview_cpu_logical_cores</code></td><td class="g">23.7 / 12</td></tr>
-                <tr><td>Memory</td><td class="m"><code>sysview_memory_*_bytes</code>, <code>sysview_memory_used_percent</code>, <code>sysview_swap_*_bytes</code></td><td class="g">33.7</td></tr>
-                <tr><td>Disk</td><td class="m"><code>sysview_disk_*_bytes{mount=...}</code>, <code>sysview_disk_used_percent{mount=...}</code>, <code>sysview_disk_read/write_bps</code></td><td class="g">45.0</td></tr>
-                <tr><td>Network</td><td class="m"><code>sysview_net_rx/tx_bps{interface=...}</code>, <code>sysview_net_*_bytes_total</code></td><td class="g">65536</td></tr>
-                <tr><td>Procs &amp; temp</td><td class="m"><code>sysview_processes</code>, <code>sysview_sensor_temperature_celsius{sensor=...}</code></td><td class="g">96 / 47</td></tr>
+                <tr><td>Host</td><td class="m"><code>sysview_uptime_seconds</code></td><td class="g">172800</td></tr>
+                <tr><td>Host</td><td class="m"><code>sysview_load1</code> / <code>sysview_load5</code> / <code>sysview_load15</code></td><td class="g">0.42 / 0.38 / 0.35</td></tr>
+                <tr><td>Host</td><td class="m"><code>sysview_ts_seconds</code></td><td class="g">1792108800</td></tr>
+                <tr><td>CPU</td><td class="m"><code>sysview_cpu_usage_percent</code></td><td class="g">23.7</td></tr>
+                <tr><td>CPU</td><td class="m"><code>sysview_cpu_logical_cores</code></td><td class="g">12</td></tr>
+                <tr><td>Memory</td><td class="m"><code>sysview_memory_used_bytes</code></td><td class="g">12427878400</td></tr>
+                <tr><td>Memory</td><td class="m"><code>sysview_memory_used_percent</code></td><td class="g">33.7</td></tr>
+                <tr><td>Memory</td><td class="m"><code>sysview_swap_used_bytes</code></td><td class="g">4294967296</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_total_bytes{mount="/"}</code></td><td class="g">99965337600</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_used_bytes{mount="/"}</code></td><td class="g">44984401920</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_used_percent{mount="/"}</code></td><td class="g">45.0</td></tr>
+                <tr><td>Disk</td><td class="m"><code>sysview_disk_read_bps{device="sda"}</code> / <code>sysview_disk_write_bps{device="sda"}</code></td><td class="g">524288 / 262144</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_rx_bps{interface="eth0"}</code></td><td class="g">65536</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_tx_bps{interface="eth0"}</code></td><td class="g">8192</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_rx_bytes_total{interface="eth0"}</code></td><td class="g">4294967296</td></tr>
+                <tr><td>Network</td><td class="m"><code>sysview_net_tx_bytes_total{interface="eth0"}</code></td><td class="g">12884901888</td></tr>
+                <tr><td>Procs</td><td class="m"><code>sysview_processes</code></td><td class="g">96</td></tr>
+                <tr><td>Sensors</td><td class="m"><code>sysview_sensor_temperature_celsius{sensor="CPU Package"}</code></td><td class="g">47</td></tr>
               </tbody>
             </table>
           </div>
@@ -466,7 +539,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
       <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &mdash;
       a brand &amp; growth agency. Built with Rust; no runtime, no framework,
       no build step for users. Written from scratch; made to stay out of your way.</p>
-    <p class="copyright">&copy; 1997-<span id="year">2026</span> SYSVIEW. All rights reserved. &bull; webmaster: <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a></p>
+    <p class="copyright">&copy; 1997-<span id="year">2026</span> SYSVIEW. All rights reserved. &bull; webmaster: <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &bull; page updated: 2026-10-09</p>
     <p class="totop"><a class="btn" href="#top">&#9650; Back to top</a></p>
   </div>
 </footer>

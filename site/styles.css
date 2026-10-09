@@ -523,6 +523,12 @@ code, .mono {
 /* ============ metrics table ============ */
 .table-wrap { overflow-x: auto; margin-bottom: 22px; }
 .tbl { width: 100%; border-collapse: collapse; background: var(--white); }
+.tbl caption {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
 .tbl th {
   background: var(--navy);
   color: #ffffff;

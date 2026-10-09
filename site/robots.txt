@@ -1,0 +1,8 @@
+# robots.txt for sysview (GitHub Pages)
+# All crawlers are welcome, including AI search engines and agents
+# (GPTBot, PerplexityBot, ClaudeBot, anthropic-ai, Google-Extended, Bingbot).
+
+User-agent: *
+Allow: /
+
+Sitemap: https://oceanofanything.github.io/sysview/sitemap.xml
