@@ -132,7 +132,7 @@ separate process) that serves a live, dark-theme monitoring page:
   they connect (nothing "starts over" on refresh).
 - **Idle-friendly:** sampling runs only while at least one dashboard is open
   (plus a short grace period for reloads). With zero viewers the server drops
-  its sampling state and sits at near-zero memory (≈4 MB private, measured on a
+  its sampling state and sits at near-zero memory (≈2–4 MB private, measured on a
   headless Debian 13 server — the exact figure varies by platform) until
   someone connects again; the shared history
   window — including the per-core and per-mount rings — is preserved across
