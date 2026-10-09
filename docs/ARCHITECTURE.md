@@ -69,7 +69,7 @@ only while a connection is open or one occurred within `IDLE_GRACE` (30 s).
 When nobody is watching:
 
 - `WebState` is **dropped** and the cached payload **cleared** — the process
-  drops to ≈7 MB private RSS regardless of uptime;
+  drops to ≈2–4 MB private RSS regardless of uptime (measured on Debian 13);
 - the **history ring (a few KB) is retained**, so the next viewer resumes the
   exact same 240-point window — charts never "start over".
 
@@ -90,7 +90,7 @@ retained and per-tick heap allocations are zero.
 
 - `/` — the dashboard HTML (poll interval + kiosk injected at startup).
 - `/api/snapshot` — the cached JSON bytes, served **under the lock** (no
-  60–90 KB clone per poll).
+  60–85 KB clone per poll).
 - `/metrics` — Prometheus text 0.0.4: decodes the *cached bytes* into a
   minimal typed view; the process array is **counted, never materialized**;
   no intermediate JSON tree, retains nothing, costs nothing while idle.
@@ -107,6 +107,8 @@ per-disk rings); the process list is capped by `--max-procs` (default 100).
 - `MAX_CONNS = 64` → `503` "too many connections".
 - Headless-friendly: `serve` never reads stdin and needs no TTY; the startup
   banner (URL, auth hint) prints to stdout → lands in the systemd journal.
+  When bound beyond loopback it also prints the ready-to-open LAN URL with the
+  token (`http://<lan-ip>:<port>/?token=…`).
 
 ### Endpoints
 
@@ -127,6 +129,9 @@ per-disk rings); the process list is capped by `--max-procs` (default 100).
 - **Thread counts** — live on Linux (refreshed via `with_tasks()` every tick);
   Windows never populates tasks and shows `-`.
 - **Disk I/O** — rendered per *disk*, never per process (see lean warmup).
-- **Deployment** — a fully static musl release is shipped at
-  `dist/sysview-linux-x86_64` (no glibc; runs on any distro); see the README
-  section *Debian / headless server setup (SSH)*.
+- **Deployment** — prebuilt Linux is a fully static musl binary
+  (`sysview-linux-x86_64-musl` on GitHub Releases; no glibc; runs on any
+  distro). `dist/` only holds local `scripts/build-linux.sh` output. See the
+  README section *Debian / headless server setup (SSH)* for the systemd
+  installer, which hardens and *enables at boot* the service (`Restart=always`,
+  256 MB memory ceiling, boot autostart).

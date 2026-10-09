@@ -5,6 +5,18 @@ Portable one-shot system stats viewer for Windows, Linux and macOS.
 Docs: usage below · maintainers/integrators: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 (sampling model, idle lifecycle, HTTP protocol, `/metrics` pipeline).
 
+## Contents
+
+- [Project layout](#project-layout)
+- [Install](#install)
+- [Usage](#usage)
+- [Embedded web dashboard](#embedded-web-dashboard) (features, `/metrics`, 24×7 security model)
+- [Debian / headless server setup (SSH)](#debian--headless-server-setup-ssh)
+- [Options](#options)
+- [Notes](#notes)
+- [Development](#development)
+- [Release history](#release-history)
+
 ## Project layout
 
 ```
@@ -116,6 +128,9 @@ separate process) that serves a live, dark-theme monitoring page:
   70% (amber) or 90% (red); disk rows light up the same way by usage.
 - **Per-core history:** each logical core gets its own mini sparkline fed by a
   server-side per-core ring (~15 KB for 16 cores).
+- **Crisp at any size:** every chart canvas is buffer-sized to what it actually
+  renders (CSS size × devicePixelRatio, capped at 3×), so lines stay sharp on
+  HiDPI displays and wide windows instead of being up-scaled and blurry.
 - **Disk donuts + trends:** each mount gets a donut gauge and a usage-trend
   sparkline from a per-mount server-side ring (a few KB).
 - **Mini trends:** per-interface RX/TX and per-sensor temperature sparklines,
@@ -146,10 +161,11 @@ separate process) that serves a live, dark-theme monitoring page:
   the sampler reuses its serialized-payload buffer across ticks instead of
   reallocating per sample.
 - Sortable/filterable process table (click a header, or type in the filter).
-- Kiosk / full-screen mode for wall displays: open
-  `http://host:8080/?kiosk=1`, or press `K` on the page. `--kiosk` starts
-  every session in kiosk mode. In kiosk the status bar auto-dims after 8 s of
-  inactivity, the clock is enlarged, and any touch/key/mouse wakes it.
+- Kiosk / full-screen mode for wall displays: add `&kiosk=1` to the token URL
+  (e.g. `http://host:8080/?token=<secret>&kiosk=1`), or press `K` on the page.
+  `--kiosk` starts every session in kiosk mode. In kiosk the status bar
+  auto-dims after 8 s of inactivity, the clock is enlarged, and any
+  touch/key/mouse wakes it.
 - Keyboard shortcuts: `F` fullscreen, `K` kiosk, `P` pause/resume, `M` drop a
   chart marker, `Shift+M` clear markers.
 - Works on old browsers (ES5, no CSS Grid — usable from Android 4 webviews).
@@ -210,7 +226,7 @@ The serve path is tuned to run continuously on Linux servers:
   same cadence as everything else, but into a single reused `Components`
   object — no fresh sysfs walk + label allocations per poll.
 - **Pauses itself.** With no viewer for 30 s the sampler is dropped and the
-  process returns to near-idle (≈4 MB private RSS, measured on a headless
+  process returns to near-idle (≈2–4 MB private RSS, measured on a headless
   Debian 13 server — idle figures on other platforms are in the same low-MB
   range); command lines/environments are never held, so active-session
   overhead stays at or under ~1 MB regardless of how long it runs (≈0.2 MB on
@@ -218,11 +234,11 @@ The serve path is tuned to run continuously on Linux servers:
   `--interval 3` to cut per-second `/proc` walks by two thirds.
 
 ```bash
-# on the headless server
-sysview serve --bind 0.0.0.0 --port 8080 --kiosk
+# on the headless server (exposing 0.0.0.0 requires a token + firewall rule)
+sysview serve --bind 0.0.0.0 --port 8080 --token "$TOKEN"
 
 # on the wall display / laptop
-open http://server-ip:8080/?kiosk=1
+open "http://server-ip:8080/?token=$TOKEN&kiosk=1"
 ```
 
 The server samples at the global `--interval` (default 1s); the on-page
@@ -353,7 +369,7 @@ The unit runs as a throwaway unprivileged user (`DynamicUser`), with
 `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
 `ProtectKernel{Tunables,Modules,Logs}`, `ProtectControlGroups`,
 `ProtectHostname`, `RestrictSUIDSGID`, `LockPersonality`,
-`RestrictNamespaces`, `RestrictRealtime` and `Restart=on-failure`
+`RestrictNamespaces`, `RestrictRealtime` and `Restart=always`
 (`systemd-analyze security sysview` will confirm). Two hardening keys are
 deliberately **not** set (see the comments in `scripts/setup-debian.sh`):
 `ProcSubset=pid` would hide `/proc/meminfo`, `/proc/stat`, `/proc/net/dev`
@@ -361,8 +377,10 @@ and `/proc/diskstats` from the sampler, which they are needed for, and
 `MemoryDenyWriteExecute` could not be demonstrated compatible on a real host
 in this project's testing, so it is left for operators to enable if they can
 verify it. On the non-loopback model, allow the chosen port through a host
-firewall: `ufw allow 8080/tcp`. The static release's SHA-256 is
-`4dd11c9dabbd56901ff3ce1c850e2c6e8428a501f93c98b7ec7c4865f32b4c`.
+firewall: `ufw allow 8080/tcp`. Verify the binary you download against
+`SHA256SUMS` on the Release page rather than a hash pinned in this doc — it
+changes with every release (the current v0.1.2 musl build is
+`6107646098c369986cee4b3dc5afd1c6906a8885bd947c112d56e2219dae02e6`).
 
 ## Options
 
@@ -415,8 +433,9 @@ bash scripts/check-gate.sh
 
 # ...or run the steps directly:
 cargo fmt -- --check              # rustfmt gate (needs: rustup component add rustfmt)
-cargo test                        # unit + integration tests (32: sampling, HTTP, auth,
-                                  #   lifecycle/idle gating, limits/timeouts, ring, /metrics)
+cargo test                        # unit + integration tests (34: sampling, HTTP, auth,
+                                  #   LAN binding, lifecycle/idle gating, limits/timeouts,
+                                  #   ring, /metrics)
 cargo clippy -- -D warnings       # zero-warning lint gate
 cargo check --target x86_64-unknown-linux-gnu   # compile-check the Linux branch on any host
 cargo clippy --target x86_64-unknown-linux-gnu -- -D warnings   # lint the Linux branch too
@@ -435,3 +454,13 @@ git tag v0.1.2 && git push origin v0.1.2
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
 or use `--port` for an ad-hoc check. The startup banner prints the URL, sample
 interval and any token — useful in the systemd journal.
+
+## Release history
+
+| Release | Highlights |
+|---|---|
+| **v0.1.2** | Boot autostart for the systemd installer (`Restart=always`, verified `enabled` at boot, 256 MB memory ceiling). Per-core CPU charts rendered at device-pixel resolution — the "bottom blue graphs" are no longer blurry — and DPR-aware canvas sizing for every chart. |
+| **v0.1.1** | On `--bind 0.0.0.0` the startup banner prints the ready-to-open LAN URL with your token (`http://<lan-ip>:<port>/?token=…`); LAN-bind test coverage. |
+| **v0.1.0** | First release: terminal CLI + embedded dashboard, token auth on every route, `/metrics`, hardened Debian/systemd installer. |
+
+Full per-release notes and assets: [Releases](https://github.com/OCEANOFANYTHING/sysview/releases).
