@@ -155,6 +155,8 @@ td.cpu-warm { color:#d29922; }
 #status.stale { opacity:.55; }
 #status .ok { color:#3fb950; }
 #status .bad { color:#f85149; }
+#status .credit { color:#6e7681; text-decoration:none; border-bottom:1px dotted #484f58; }
+#status .credit:hover { color:#e6edf3; border-bottom-color:#8b949e; }
 #offline { display:none; position:fixed; top:0; left:0;right:0; background:#7d1622;
   color:#fff; text-align:center; padding:5px; font-size:13px; z-index:100; }
 
@@ -381,6 +383,7 @@ tr.alert-red td { color:#f85149; }
   &middot; <span id="clock" class="mono"></span>
   &middot; <span id="markInfo" class="dim"></span>
   &middot; <span class="hint dim">press <b>F</b> fullscreen, <b>K</b> kiosk, <b>M</b> mark, <b>Shift+M</b> clear marks</span>
+  &middot; <a class="credit" href="https://ndcompany.in" target="_blank" rel="noopener">a N&amp;D Co tool</a>
 </div>
 
 <script>

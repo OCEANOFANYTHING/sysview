@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sysview — system stats at a glance, on terminal, browser, LAN</title>
 <meta name="description" content="sysview is a portable one-shot system stats viewer for Windows, Linux and macOS. One static binary: a fast CLI overview, a live dark-mode web dashboard, and Prometheus metrics — with no runtime and no dependencies.">
-<meta name="theme-color" content="#070a12">
+<meta name="theme-color" content="#12052a">
 <meta property="og:title" content="sysview — system stats at a glance">
 <meta property="og:description" content="Portable one-shot system stats viewer: CLI, live web dashboard and Prometheus metrics in a single static binary.">
 <meta property="og:type" content="website">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='7' fill='%23070a12'/%3E%3Cpath d='M7 17 L12 11 L17 19 L22 13 L26 17' stroke='%2322d3ee' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='7' fill='%2312052a'/%3E%3Cpath d='M7 17 L12 11 L17 19 L22 13 L26 17' stroke='%239564dd' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -19,10 +19,10 @@
   <nav class="nav-inner">
     <a class="brand" href="#top" aria-label="sysview home">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="26" height="26"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/><path d="M7 17 L12 11 L17 19 L22 13 L26 17" stroke="url(#bg)" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs></svg>
+        <svg viewBox="0 0 32 32" width="26" height="26"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/><path d="M7 17 L12 11 L17 19 L22 13 L26 17" stroke="url(#bg)" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9564dd"/><stop offset="1" stop-color="#3e0f8d"/></linearGradient></defs></svg>
       </span>
       <span class="brand-name">sysview</span>
-      <span class="brand-ver">v0.1.2</span>
+      <span class="brand-ver">v0.1.3</span>
     </a>
     <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false">
       <span></span><span></span><span></span>
@@ -34,7 +34,7 @@
       <a href="#deploy">Deploy 24&times;7</a>
       <a href="#metrics">Metrics</a>
       <a href="#faq">FAQ</a>
-      <a class="btn btn-ghost btn-small" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">GitHub &#8599;</a>
+      <a class="btn btn-ghost btn-small" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">GitHub <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
     </div>
   </nav>
 </header>
@@ -45,7 +45,7 @@
   <section class="hero">
     <div class="glow" aria-hidden="true"></div>
     <div class="wrap hero-inner">
-      <p class="pill"><span class="dot"></span> v0.1.2 &middot; one static binary &middot; zero runtime deps</p>
+      <p class="pill"><span class="dot" aria-hidden="true"></span> v0.1.3 &middot; one static binary &middot; zero runtime deps</p>
       <h1>System stats at a glance.
         <span class="grad">Terminal. Browser. LAN.</span></h1>
       <p class="lede">sysview is a portable, one-shot system stats viewer for
@@ -53,9 +53,11 @@
         overview, a live dark-mode web dashboard, and Prometheus metrics &mdash;
         with no runtime, no framework and no installer.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.2</a>
-        <a class="btn btn-secondary" href="#quickstart">Quick start &darr;</a>
+        <a class="btn btn-primary" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.3</a>
+        <a class="btn btn-secondary" href="#quickstart">Quick start <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg></a>
       </div>
+      <p class="sponsor-line">Sponsored &amp; developed by
+        <a href="https://ndcompany.in" target="_blank" rel="noopener"><b>N&amp;D Co</b> &mdash; Brand &amp; Growth Agency</a></p>
       <ul class="stats">
         <li><b>&asymp;3&ndash;4 MB</b><span>binary size</span></li>
         <li><b>&asymp;2&ndash;4 MB</b><span>private RSS at idle</span></li>
@@ -67,11 +69,11 @@
     <div class="wrap">
       <figure class="shot-frame">
         <div class="chrome">
-          <span class="tl tl-r"></span><span class="tl tl-y"></span><span class="tl tl-g"></span>
-          <span class="addr">http://192.168.100.114:8080/?token=&#9679;&#9679;&#9679;&#9679;</span>
-          <span class="live"><i></i> live</span>
+          <span class="tl"></span><span class="tl"></span><span class="tl"></span>
+          <span class="addr">http://srv-01:8080/?token=&#9679;&#9679;&#9679;&#9679;</span>
+          <span class="live">live</span>
         </div>
-        <img src="assets/dashboard.png" alt="sysview live web dashboard showing CPU, memory, disk, network and process panels" width="1280" height="720">
+        <img src="assets/dashboard.png" alt="sysview web dashboard with demo data: CPU, per-core usage, memory, disk and network panels">
         <figcaption>The embedded dashboard &mdash; served by <code>sysview serve</code>, one self-contained page, nothing to install.</figcaption>
       </figure>
     </div>
@@ -89,7 +91,7 @@
       <div class="cols cols-feat">
         <article class="card">
           <div class="card-head">
-            <span class="ico" aria-hidden="true">&#9553;</span>
+            <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M6 9l3 3-3 3M11 15h5"/></svg></span>
             <h3>Terminal CLI</h3>
           </div>
           <ul class="ticks">
@@ -102,7 +104,7 @@
 
         <article class="card">
           <div class="card-head">
-            <span class="ico" aria-hidden="true">&#9681;</span>
+            <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/></svg></span>
             <h3>Web dashboard</h3>
           </div>
           <ul class="ticks">
@@ -115,7 +117,7 @@
 
         <article class="card">
           <div class="card-head">
-            <span class="ico" aria-hidden="true">&#8721;</span>
+            <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg></span>
             <h3>Memory-lean by design</h3>
           </div>
           <ul class="ticks">
@@ -128,7 +130,7 @@
 
         <article class="card">
           <div class="card-head">
-            <span class="ico" aria-hidden="true">&#9670;</span>
+            <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></svg></span>
             <h3>Prometheus &middot; out of the box</h3>
           </div>
           <ul class="ticks">
@@ -161,28 +163,28 @@
         <pre class="term"><code><span class="cm"># download sysview-windows-x86_64.exe, then in a terminal:</span>
 <span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe                 <span class="cm"># full overview</span>
 <span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe procs --top 20  <span class="cm"># top processes by CPU</span>
-<span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe serve           <span class="cm"># dashboard on :8080</span></code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+<span class="pr">PS&gt;</span> .\sysview-windows-x86_64.exe serve           <span class="cm"># dashboard on :8080</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
       </div>
       <div class="panel hidden" id="panel-linux" role="tabpanel">
         <pre class="term"><code><span class="pr">$</span> chmod +x sysview-linux-x86_64-musl
 <span class="pr">$</span> ./sysview-linux-x86_64-musl                      <span class="cm"># full overview</span>
 <span class="pr">$</span> ./sysview-linux-x86_64-musl cpu --json           <span class="cm"># CPU as JSON</span>
-<span class="pr">$</span> ./sysview-linux-x86_64-musl serve --bind 0.0.0.0 --port 8080 --token "$SECRET"</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+<span class="pr">$</span> ./sysview-linux-x86_64-musl serve --bind 0.0.0.0 --port 8080 --token "$SECRET"</code><button class="copy" aria-label="Copy">Copy</button></pre>
       </div>
       <div class="panel hidden" id="panel-mac" role="tabpanel">
         <pre class="term"><code><span class="pr">$</span> chmod +x sysview-mac-universal
 <span class="pr">$</span> ./sysview-mac-universal                          <span class="cm"># full overview</span>
 <span class="pr">$</span> ./sysview-mac-universal --watch --interval 1 --sort mem -r --top 15
-<span class="pr">$</span> ./sysview-mac-universal serve                    <span class="cm"># dashboard on :8080</span></code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+<span class="pr">$</span> ./sysview-mac-universal serve                    <span class="cm"># dashboard on :8080</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
       </div>
 
       <div class="callout">
-        <h4>&#128279;&nbsp; Share it on your LAN</h4>
+        <h4><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Share it on your LAN</h4>
         <p>Bind beyond loopback and the startup banner prints the ready-to-open
           URL with your token &mdash; just scan or type it on any phone, tablet
           or TV in the network.</p>
         <pre class="term"><code><span class="pr">$</span> sysview serve --bind 0.0.0.0 --port 8080 --token "$SECRET"
-<span class="ok"># open on any device:</span>  http://&lt;server-ip&gt;:8080/?token=$SECRET</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+<span class="ok"># open on any device:</span>  http://&lt;server-ip&gt;:8080/?token=$SECRET</code><button class="copy" aria-label="Copy">Copy</button></pre>
       </div>
     </div>
   </section>
@@ -227,14 +229,16 @@
         <b>enabled at boot</b> check when done.</p>
       <pre class="term"><code><span class="pr">$</span> sudo BIND=0.0.0.0 PORT=8080 INTERVAL=1 MAX_PROCS=100 \
 &nbsp;&nbsp;&nbsp;&nbsp;bash setup-debian.sh ./sysview-linux-x86_64-musl
-<span class="ok"># systemctl is-enabled sysview  &rarr;  enabled</span>
-<span class="ok"># the startup banner prints:</span>  http://192.168.100.114:8080/?token=&#9679;&#9679;&#9679;&#9679;</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+<span class="ok"># systemctl is-enabled sysview</span>
+<span class="ok">enabled</span>
+<span class="ok"># the startup banner prints the ready-to-open URL:</span>
+<span class="ok">http://srv-01:8080/?token=&#9679;&#9679;&#9679;&#9679;</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
       <div class="glyphs">
-        <div><b class="g ok">&#10003;</b>Auto-starts at boot (<code>WantedBy=multi-user.target</code>)</div>
-        <div><b class="g ok">&#10003;</b>Survives crashes &amp; kill -9 (<code>Restart=always</code>)</div>
-        <div><b class="g ok">&#10003;</b>256 MB memory ceiling, token on disk in root-only <code>/etc/sysview/</code></div>
-        <div><b class="g">&#8680;</b>Open the port once: <code>sudo ufw allow 8080/tcp</code></div>
-        <div><b class="g">&#8680;</b>Watch it: <code>sudo journalctl -u sysview -f</code></div>
+        <div><b class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-11"/></svg></b><span>Auto-starts at boot (<code>WantedBy=multi-user.target</code>)</span></div>
+        <div><b class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-11"/></svg></b><span>Survives crashes &amp; kill -9 (<code>Restart=always</code>)</span></div>
+        <div><b class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-11"/></svg></b><span>256 MB memory ceiling, token on disk in root-only <code>/etc/sysview/</code></span></div>
+        <div><b class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></b><span>Open the port once: <code>sudo ufw allow 8080/tcp</code></span></div>
+        <div><b class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></b><span>Watch it: <code>sudo journalctl -u sysview -f</code></span></div>
       </div>
     </div>
   </section>
@@ -296,15 +300,15 @@
         </div>
       </div>
 
-      <pre class="term"><code><span class="cm"># a real excerpt from a live headless box:</span>
+      <pre class="term"><code><span class="cm"># an example scrape, matching the demo dashboard above:</span>
 <span class="cm"># HELP sysview_cpu_usage_percent Total CPU usage in percent.</span>
 <span class="cm"># TYPE sysview_cpu_usage_percent gauge</span>
-sysview_cpu_usage_percent 1.0
-sysview_memory_used_bytes 631320576
-sysview_disk_used_percent{mount=&quot;/&quot;} 7.16
-sysview_net_rx_bps{interface=&quot;wlx3460f9f543f9&quot;} 6565
-sysview_sensor_temperature_celsius{sensor=&quot;thinkpad CPU&quot;} 42
-sysview_processes 137</code><button class="copy" data-copy aria-label="Copy">Copy</button></pre>
+sysview_cpu_usage_percent 23.7
+sysview_memory_used_bytes 12427878400
+sysview_disk_used_percent{mount=&quot;/&quot;} 45.0
+sysview_net_rx_bps{interface=&quot;eth0&quot;} 65536
+sysview_sensor_temperature_celsius{sensor=&quot;CPU Package&quot;} 47
+sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button></pre>
     </div>
   </section>
 
@@ -365,6 +369,16 @@ sysview_processes 137</code><button class="copy" data-copy aria-label="Copy">Cop
 <!-- ============ FOOTER ============ -->
 <footer class="footer">
   <div class="wrap footer-inner">
+    <div class="sponsor">
+      <span class="sponsor-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none"><rect x="2" y="2" width="28" height="28" rx="8" stroke="currentColor" stroke-opacity=".4"/><path d="M7 17 L12 11 L17 19 L22 13 L26 17" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span>
+        <p class="sponsor-kicker">Sponsored &amp; developed by</p>
+        <a class="sponsor-name" href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co &mdash; Brand &amp; Growth Agency</a>
+        <p class="sponsor-url mono">ndcompany.in</p>
+      </span>
+    </div>
     <div class="footer-brand">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32" width="22" height="22"><rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="currentColor" stroke-opacity=".35"/><path d="M7 17 L12 11 L17 19 L22 13 L26 17" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -377,13 +391,18 @@ sysview_processes 137</code><button class="copy" data-copy aria-label="Copy">Cop
       <a href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Releases</a>
       <a href="https://github.com/OCEANOFANYTHING/sysview/blob/main/README.md" target="_blank" rel="noopener">README</a>
       <a href="https://github.com/OCEANOFANYTHING/sysview/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+      <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a>
     </nav>
-    <p class="dim small">Built with Rust &mdash; no runtime, no framework, no
-      build step for users. Written from scratch; made to stay out of your way.</p>
+    <p class="dim small">Maintained &amp; sponsored by
+      <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &mdash;
+      a brand &amp; growth agency. Built with Rust, no runtime, no framework,
+      no build step for users. Written from scratch; made to stay out of your way.</p>
   </div>
 </footer>
 
-<a class="toplink" href="#top" aria-label="Back to top" hidden>&uarr;</a>
+<a class="toplink" href="#top" aria-label="Back to top" hidden>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</a>
 
 <script src="app.js"></script>
 </body>

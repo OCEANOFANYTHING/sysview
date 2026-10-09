@@ -6,6 +6,8 @@ Docs: usage below · site: <https://oceanofanything.github.io/sysview> ·
 maintainers/integrators: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 (sampling model, idle lifecycle, HTTP protocol, `/metrics` pipeline).
 
+Sponsored & developed by [N&D Co — Brand & Growth Agency](https://ndcompany.in).
+
 ## Contents
 
 - [Project layout](#project-layout)
@@ -380,7 +382,7 @@ in this project's testing, so it is left for operators to enable if they can
 verify it. On the non-loopback model, allow the chosen port through a host
 firewall: `ufw allow 8080/tcp`. Verify the binary you download against
 `SHA256SUMS` on the Release page rather than a hash pinned in this doc — it
-changes with every release (the current v0.1.2 musl build is
+changes with every release (the v0.1.2 musl build was
 `6107646098c369986cee4b3dc5afd1c6906a8885bd947c112d56e2219dae02e6`).
 
 ## Options
@@ -449,7 +451,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.2 && git push origin v0.1.2
+git tag v0.1.3 && git push origin v0.1.3
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -460,6 +462,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.1.3** | Dashboard status bar credits N&D Co — Brand & Growth Agency (single do-follow link to ndcompany.in); same credit on the project site. |
 | **v0.1.2** | Boot autostart for the systemd installer (`Restart=always`, verified `enabled` at boot, 256 MB memory ceiling). Per-core CPU charts rendered at device-pixel resolution — the "bottom blue graphs" are no longer blurry — and DPR-aware canvas sizing for every chart. |
 | **v0.1.1** | On `--bind 0.0.0.0` the startup banner prints the ready-to-open LAN URL with your token (`http://<lan-ip>:<port>/?token=…`); LAN-bind test coverage. |
 | **v0.1.0** | First release: terminal CLI + embedded dashboard, token auth on every route, `/metrics`, hardened Debian/systemd installer. |

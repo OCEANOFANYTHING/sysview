@@ -21,7 +21,7 @@
   function copyText(text, btn) {
     function done() {
       var old = btn.textContent;
-      btn.textContent = "Copied \u2713";
+      btn.textContent = "Copied";
       btn.classList.add("done");
       btn.setAttribute("aria-label", "Copied");
       setTimeout(function () {
