@@ -1331,6 +1331,8 @@ mod tests {
         assert!(html.contains("var POLL = 5000;"));
         assert!(html.contains("class=\"dashboard\""));
         assert!(!html.contains("class=\"dashboard kiosk\""));
+        assert!(html.contains("function fitCoreHists"));
+        assert!(html.contains("devicePixelRatio"));
 
         let kiosk = ServeConfig {
             interval_secs: 2.0,

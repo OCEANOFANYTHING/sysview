@@ -403,6 +403,11 @@ tr.alert-red td { color:#f85149; }
 
   var hist = { cpu: [], mem: [], rx: [], tx: [], swap: [] };
 
+  /* last per-core ring + core list from the server, kept so the strip can be
+     re-fitted and re-drawn crisp on window resize between polls */
+  var coreNames = null;
+  var coreHistData = null;
+
   /* smooth gauge targets (lerped toward on each animation frame) */
   var curVal = { cpu: 0, mem: 0, swap: 0 };
   var tgtVal = { cpu: 0, mem: 0, swap: 0 };
@@ -675,12 +680,17 @@ tr.alert-red td { color:#f85149; }
       }
     }
   }
-  /* Size each canvas buffer to its displayed size so charts stay crisp (not
-     stretched) on any screen; call before first draw and on resize. */
+  /* Size each canvas buffer to what it actually displays: the rendered CSS
+     size times devicePixelRatio (1x on normal screens, 2x/3x on HiDPI), so
+     charts are drawn at full resolution instead of being up-scaled and
+     blurry. Capped so buffers never exceed ~3x the CSS size. Call before
+     first draw and on resize. */
+  var DPR = (window.devicePixelRatio >= 1 && window.devicePixelRatio <= 3)
+    ? window.devicePixelRatio : 1;
   function fitCanvas(c) {
     if (!c || !c.getContext) return;
-    var w = c.clientWidth || c.width;
-    var h = c.clientHeight || c.height;
+    var w = Math.round((c.clientWidth || c.width) * DPR);
+    var h = Math.round((c.clientHeight || c.height) * DPR);
     if (w > 0 && h > 0 && (c.width !== w || c.height !== h)) {
       c.width = w;
       c.height = h;
@@ -693,7 +703,9 @@ tr.alert-red td { color:#f85149; }
     fitCanvas($("sparkRx"));
     fitCanvas($("sparkTx"));
     fitCanvas($("chartCpu"));
+    fitCoreHists();
     redrawCharts();
+    redrawCoreHists();
   }
 
   /* ---------------- data ---------------- */
@@ -767,17 +779,42 @@ tr.alert-red td { color:#f85149; }
      that core's own strip cell (index-aligned with the bars above), so it
      always sits directly under the right core's number. Data comes from the
      server's per-core ring. */
+  /* The strip cells are as wide as (strip-width / core-count), which never
+     matches the fixed 120 px buffer the canvases start with — so every chart
+     was being up-scaled by the browser and looked blurry. Fitting each buffer
+     to the size actually rendered (x devicePixelRatio) fixes that. Must run
+     after the strip HTML is inserted so the rendered cell widths are known. */
+  function fitCoreHists() {
+    var box = $("coreStrip");
+    if (!box) return;
+    var kids = box.childNodes;
+    for (var i = 0; i < kids.length; i++) {
+      if (!kids[i] || kids[i].nodeType !== 1) continue;
+      var cv = kids[i].getElementsByTagName("canvas")[0];
+      if (cv) fitCanvas(cv);
+    }
+  }
   function drawCoreHist(cores, histData) {
     var box = $("coreStrip");
     if (!box) return;
     var chist = (histData && Object.prototype.toString.call(histData.cores) === "[object Array]")
       ? histData.cores : null;
     if (!chist) return;
+    coreNames = cores;
+    coreHistData = chist;
+    redrawCoreHists();
+  }
+  /* Draws every per-core sparkline from the cached ring (used by drawCoreHist
+     and after a window resize, where the re-fitted canvases need re-drawing). */
+  function redrawCoreHists() {
+    if (!coreNames || !coreHistData) return;
+    var box = $("coreStrip");
+    if (!box) return;
     var kids = box.childNodes;
-    for (var i = 0; i < cores.length && i < kids.length; i++) {
+    for (var i = 0; i < coreNames.length && i < kids.length; i++) {
       var cv = kids[i].getElementsByTagName("canvas")[0];
       if (!cv) continue;
-      var row = chist[i];
+      var row = coreHistData[i];
       if (row && row.length) drawLine(cv, row, "#58a6ff");
     }
   }
@@ -863,6 +900,7 @@ tr.alert-red td { color:#f85149; }
           + "<canvas class='hist' width='120' height='20'></canvas></div>";
     }
     $("coreStrip").innerHTML = ch;
+    fitCoreHists();
     drawCoreHist(cores, d.history);
     $("upVal").textContent = uptimeStr(s.uptime_secs);
     if (s.load_average) {

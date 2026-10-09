@@ -266,10 +266,13 @@ ssh root@server 'bash /tmp/setup-debian.sh /tmp/sysview-linux-x86_64-musl'
 ```
 
 The installer puts `sysview` in `/usr/local/bin`, generates an access token
-(persisted in `/etc/sysview/env`), and enables a hardened systemd service with
-restart-on-failure. Like the CLI, it defaults to loopback (`BIND=127.0.0.1`),
-so the printed URL is local: reach it over an SSH tunnel, or rerun with
-`BIND=0.0.0.0` to expose it on the LAN (the token is always required).
+(persisted in `/etc/sysview/env`), and installs a hardened systemd service that
+is **enabled at boot**: after a reboot or power outage the dashboard comes back
+by itself with the same token/port — nothing to configure. It also restarts on
+any crash and enforces a 256 MB memory ceiling. Like the CLI, it defaults to
+loopback (`BIND=127.0.0.1`), so the printed URL is local: reach it over an SSH
+tunnel, or rerun with `BIND=0.0.0.0` to expose it on the LAN (the token is
+always required).
 
 ### SSH tunnel instead of an open port
 
@@ -320,8 +323,9 @@ pgrep -a sysview      # verify
 tail -f /var/log/sysview.log
 ```
 
-The systemd unit is still preferable on a server: it survives reboots, restarts
-on failure and logs to the journal for free.
+The systemd service is still preferable on a server: it is enabled at boot (so
+it comes back on its own after a reboot or power loss), restarts on any crash,
+enforces the 256 MB memory ceiling and logs to the journal for free.
 
 ### Installer overrides
 
@@ -425,7 +429,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.1 && git push origin v0.1.1
+git tag v0.1.2 && git push origin v0.1.2
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),

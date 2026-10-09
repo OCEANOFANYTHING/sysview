@@ -106,7 +106,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=$BIN_DIR/$SVC --interval ${INTERVAL} serve --bind ${BIND} --port ${PORT} --max-procs ${MAX_PROCS} --token \${SYSVIEW_TOKEN}${KIOSK_ARGS}
 EnvironmentFile=$CFG_DIR/env
-Restart=on-failure
+Restart=always
 RestartSec=3
 # The daemon only reads /proc, /sys, /etc and binds a high port, so it runs
 # as a throwaway unprivileged user instead of root. (Keep PORT >= 1024.)
@@ -131,9 +131,9 @@ RestrictRealtime=true
 #                           /proc/net/dev and /proc/diskstats
 #   MemoryDenyWriteExecute  could not be demonstrated compatible on this
 #                           host, so it is left out (comment in README)
-# Optional memory ceiling for the daemon (it normally stays ~10-20 MB; the
-# sampler is dropped to near-zero while no dashboard is connected):
-# MemoryMax=256M
+# Memory ceiling: the daemon normally sits at ~4 MB RSS (the sampler drops to
+# near-zero while no dashboard is connected); this is just a hard safety cap.
+MemoryMax=256M
 
 [Install]
 WantedBy=multi-user.target
@@ -146,6 +146,11 @@ sleep 1
 if [ "$(systemctl is-active "$SVC" 2>/dev/null)" != "active" ]; then
     echo "error: service failed to start." >&2
     systemctl --no-pager status "$SVC" --lines=5 || true
+    exit 1
+fi
+
+if [ "$(systemctl is-enabled "$SVC" 2>/dev/null)" != "enabled" ]; then
+    echo "error: service is not enabled to start at boot." >&2
     exit 1
 fi
 
@@ -164,6 +169,9 @@ else
     echo "  to expose it on the LAN instead, rerun with BIND=0.0.0.0"
     echo "  (then also allow the port through the firewall + keep the token)"
 fi
+echo
+echo "autostart: enabled at boot - the dashboard comes back automatically after"
+echo "          a reboot or power outage (same token/port); nothing to configure."
 echo
 echo "manage:   systemctl status $SVC   restart   stop"
 echo "logs:     journalctl -u $SVC -f"
