@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en" class="dashboard">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>sysview fleet</title>
+<link rel="icon" href="favicon.ico">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0d1117; color:#c9d1d9;
+         font:13px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { padding:14px 18px; border-bottom:1px solid #21262d; position:sticky; top:0;
+           background:#0d1117; z-index:2; }
+  h1 { margin:0 0 8px; font-size:16px; font-weight:600; letter-spacing:.3px; }
+  h1 .dot { color:#3fb950; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, button { background:#161b22; color:#c9d1d9; border:1px solid #30363d;
+                  border-radius:6px; padding:6px 9px; font:inherit; }
+  input::placeholder { color:#6e7681; }
+  input#fName { width:140px; }
+  input#fUrl  { width:260px; }
+  input#fToken{ width:200px; }
+  button { cursor:pointer; }
+  button:hover { border-color:#8b949e; }
+  button.primary { background:#238636; border-color:#2ea043; color:#fff; }
+  button.sec { background:transparent; border-color:#30363d; }
+  .msg { min-height:16px; margin-top:6px; font-size:12px; }
+  .msg.ok { color:#3fb950; } .msg.bad { color:#f85149; }
+  .muted { color:#8b949e; }
+  main { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+         gap:12px; padding:14px 18px; }
+  .card { border:1px solid #21262d; border-radius:8px; background:#0f141c; padding:12px; }
+  .card h2 { margin:0 0 8px; font-size:13px; font-weight:600; display:flex;
+             justify-content:space-between; align-items:center; gap:8px; }
+  .pill { font-size:10px; text-transform:uppercase; letter-spacing:.5px;
+          padding:1px 7px; border-radius:10px; border:1px solid #30363d; color:#8b949e; }
+  .pill.up { color:#3fb950; border-color:#2ea043; }
+  .pill.down { color:#f85149; border-color:#da3633; }
+  .kv { display:flex; justify-content:space-between; padding:2px 0; }
+  .kv b { font-weight:600; font-variant-numeric:tabular-nums; }
+  .bar { height:6px; border-radius:3px; background:#21262d; overflow:hidden; margin:3px 0 7px; }
+  .fill { height:100%; background:#58a6ff; transition:width .3s; }
+  .hot { background:#f85149; } .warm { color:#d29922; }
+  .card .err { color:#f85149; font-size:12px; word-break:break-word; }
+  .card .del { background:transparent; border:none; color:#6e7681; font-size:12px;
+               cursor:pointer; padding:0; }
+  .card .host { color:#8b949e; font-weight:400; font-size:11px; }
+</style>
+</head>
+<body class="dashboard">
+<header>
+  <h1><span class="dot">&#9679;</span> sysview fleet</h1>
+  <div class="row">
+    <input id="fName" placeholder="name">
+    <input id="fUrl" placeholder="https://host:8080">
+    <input id="fToken" placeholder="token (optional)">
+    <button class="primary" id="fAdd">add host</button>
+    <button class="sec" id="fRefresh">refresh now</button>
+    <span class="muted">every</span>
+    <select id="fEvery" class="muted" style="background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px">
+      <option value="2000">2s</option>
+      <option value="3000" selected>3s</option>
+      <option value="5000">5s</option>
+      <option value="10000">10s</option>
+    </select>
+  </div>
+  <div class="msg" id="fMsg"></div>
+</header>
+<main id="fGrid"></main>
+
+<script>
+var STORE = "sysview.fleet";
+
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function hosts() {
+  try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch (e) { return []; }
+}
+function save(list) {
+  try { localStorage.setItem(STORE, JSON.stringify(list)); } catch (e) {}
+}
+function msg(text, ok) {
+  var m = $("fMsg");
+  m.textContent = text;
+  m.className = "msg " + (ok ? "ok" : "bad");
+}
+function base(url) {
+  url = String(url || "").trim().replace(/\/+$/, "");
+  if (url && !/^https?:\/\//i.test(url)) url = "http://" + url;
+  return url;
+}
+function pct(used, total) { return total > 0 ? (used / total) * 100 : 0; }
+function bar(label, p, extra) {
+  var hot = p >= 90;
+  return "<div class='kv'><span class='muted'>" + label + "</span><span>" +
+         p.toFixed(0) + "%" + (extra ? " <span class='muted'>" + extra + "</span>" : "") +
+         "</span></div><div style='height:4px;background:#21262d;border-radius:3px;overflow:hidden'>" +
+         "<div style='height:4px;width:" + Math.min(100, p).toFixed(1) + "%;background:" +
+         (hot ? "#f85149" : "#3fb950") + "'></div></div>";
+}
+function gib(bytes) { return (bytes / 1073741824).toFixed(1) + "G"; }
+
+function render() {
+  var list = hosts(), h = "", i;
+  if (!list.length) {
+    $("fGrid").innerHTML = "<div class='card muted'>No hosts yet. Add one above; " +
+      "each host needs <code>sysview serve --cors</code> to be pollable from here.</div>";
+    return;
+  }
+  for (i = 0; i < list.length; i++) {
+    h += "<div class='card' id='host" + i + "'>" +
+         "<h2><span>" + esc(list[i].name || list[i].url) + "</span>" +
+         "<span><span class='pill' id='pill" + i + "'>…</span> " +
+         "<button class='sec' data-del='" + i + "'>✕</button></span></h2>" +
+         "<div class='muted' style='font-size:11px;margin-bottom:6px'>" + esc(base(list[i].url)) + "</div>" +
+         "<div id='body" + i + "' class='muted'>connecting…</div></div>";
+  }
+  $("fGrid").innerHTML = h;
+  var dels = $("fGrid").getElementsByTagName("button");
+  for (i = 0; i < dels.length; i++) {
+    if (dels[i].getAttribute("data-del") !== null) {
+      dels[i].onclick = (function (idx) {
+        return function () {
+          var l = hosts(); l.splice(idx, 1); save(l); render(); poll();
+        };
+      })(parseInt(dels[i].getAttribute("data-del"), 10));
+    }
+  }
+}
+
+function fill(i, j) {
+  $("pill" + i).textContent = "live";
+  $("pill" + i).className = "pill up";
+  var sys = j.system || {}, mem = j.memory || {}, cpu = j.cpu || {};
+  var mount = null, i2;
+  for (i2 = 0; i2 < (j.disks || []).length; i2++) {
+    var d = j.disks[i2];
+    var p = pct(d.used, d.total);
+    if (!mount || p > mount.p) mount = { p: p, mp: d.mount_point };
+  }
+  var swap = pct(mem.swap_used, mem.swap_total);
+  var load = sys.load_average ? " <span class='muted'>load " + sys.load_average.one.toFixed(2) + "</span>" : "";
+  var body =
+    "<div class='kv'><span class='muted'>" + esc(sys.hostname || "host") + "</span>" +
+    "<span class='muted'>" + esc(sys.os_name || "") + "</span></div>" +
+    "<div class='kv'><span class='muted'>uptime</span><span>" +
+    Math.floor((sys.uptime_secs || 0) / 3600) + "h</span></div>" +
+    bar("cpu", cpu.usage || 0, load) +
+    bar("mem", mem.used_percent || 0, gib(mem.used || 0) + " / " + gib(mem.total || 0)) +
+    bar("swap", swap) +
+    (mount ? bar("disk " + esc(mount.mp), mount.p) : "");
+  $("body" + i).innerHTML = body;
+}
+
+function down(i, text) {
+  $("pill" + i).textContent = "down";
+  $("pill" + i).className = "pill down";
+  $("body" + i).innerHTML = "<span style='color:#f85149'>" + esc(text) + "</span>";
+}
+
+function pollOne(i, host) {
+  var list = hosts();
+  if (!list[i]) return;
+  var url = base(host.url) + "/api/snapshot";
+  if (host.token) url += "?token=" + encodeURIComponent(host.token);
+  fetch(url, { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status + (r.status === 403 ? " (needs admin/view key)" : ""));
+      return r.json();
+    })
+    .then(function (j) { fill(i, j); })
+    .catch(function (e) { down(i, e.message || "unreachable"); });
+}
+
+function poll() {
+  var list = hosts(), i;
+  for (i = 0; i < list.length; i++) pollOne(i, list[i]);
+  clearTimeout(window._t);
+  window._t = setTimeout(poll, parseInt($("fEvery").value, 10));
+}
+
+$("fAdd").onclick = function () {
+  var url = base($("fUrl").value);
+  if (!url) { msg("enter a host URL", false); return; }
+  var list = hosts();
+  list.push({ name: $("fName").value.trim(), url: url, token: $("fToken").value.trim() });
+  save(list);
+  $("fName").value = ""; $("fUrl").value = ""; $("fToken").value = "";
+  msg("added " + url, true);
+  render(); poll();
+};
+$("fRefresh").onclick = function () { poll(); };
+$("fEvery").onchange = function () { poll(); };
+
+render();
+poll();
+</script>
+</body>
+</html>

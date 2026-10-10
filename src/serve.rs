@@ -61,6 +61,22 @@ use crate::{iface, update};
 /// Static dashboard page, compiled into the binary.
 const DASHBOARD_HTML: &str = include_str!("../web/dashboard.html");
 
+/// Static fleet page (watch several hosts at once), compiled into the binary.
+const FLEET_HTML: &str = include_str!("../web/fleet.html");
+
+/// Web App Manifest so the dashboard can be installed as a standalone app.
+const MANIFEST_JSON: &str = r##"{
+  "name": "sysview dashboard",
+  "short_name": "sysview",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    { "src": "favicon.ico", "sizes": "32x32", "type": "image/png" }
+  ]
+}"##;
+
 /// Maximum concurrent connections (thread cap, also bounds slow-loris sockets).
 const MAX_CONNS: usize = 64;
 
@@ -148,6 +164,9 @@ pub struct ServeConfig {
     pub alerts: AlertConfig,
     /// PEM cert/key for HTTPS. When set, the listener speaks TLS.
     pub tls: Option<TlsFiles>,
+    /// Send `Access-Control-Allow-Origin: *` on read responses so a fleet page
+    /// on another origin can poll this host. Off by default.
+    pub cors: bool,
 }
 
 /// Paths to the PEM-encoded certificate chain and private key used for HTTPS.
@@ -203,6 +222,7 @@ impl Default for ServeConfig {
             settings_path: None,
             alerts: AlertConfig::default(),
             tls: None,
+            cors: false,
         }
     }
 }
@@ -258,6 +278,8 @@ struct Shared {
     bind: String,
     port: u16,
     interface: Option<String>,
+    /// Emit `Access-Control-Allow-Origin: *` on read responses (opt-in).
+    cors: bool,
     /// Test-only observability: true while the sampler is actively sampling,
     /// false once it has dropped the state for idle. In production the
     /// observable signal is the payload 503/200 transition.
@@ -495,6 +517,7 @@ impl Server {
             bind: cfg.bind.clone(),
             port: cfg.port,
             interface: cfg.interface.clone(),
+            cors: cfg.cors,
             #[cfg(test)]
             sampling: AtomicBool::new(false),
             #[cfg(test)]
@@ -1551,6 +1574,14 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
             }
         }
 
+        // Opt-in CORS: a fleet page served from another origin may read this
+        // host only when the operator asked for it with --cors.
+        let acao = if shared.cors {
+            "Access-Control-Allow-Origin: *\r\n"
+        } else {
+            ""
+        };
+
         match (method, path) {
             ("GET" | "HEAD", "/") | ("GET" | "HEAD", "/index.html") => {
                 // A dashboard viewer means "someone is watching" for idle gating.
@@ -1580,13 +1611,14 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
                 mark_watching(&shared);
                 match guard.as_ref() {
                     Some(j) => {
-                        respond(
+                        respond_extra(
                             &mut stream,
                             "200 OK",
                             "application/json; charset=utf-8",
                             j.as_slice(),
                             method == "HEAD",
                             keep,
+                            acao,
                         );
                     }
                     None => respond(
@@ -1612,13 +1644,14 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
                 mark_watching(&shared);
                 match txt {
                     Some(t) => {
-                        respond(
+                        respond_extra(
                             &mut stream,
                             "200 OK",
                             "text/plain; version=0.0.4; charset=utf-8",
                             t.as_bytes(),
                             method == "HEAD",
                             keep,
+                            acao,
                         );
                     }
                     None => respond(
@@ -1643,13 +1676,14 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
                     sysinfo::System::uptime(),
                     sampling,
                 );
-                respond(
+                respond_extra(
                     &mut stream,
                     "200 OK",
                     "application/json; charset=utf-8",
                     body.as_bytes(),
                     method == "HEAD",
                     keep,
+                    acao,
                 );
             }
             ("GET" | "HEAD", "/favicon.ico") => {
@@ -1677,11 +1711,34 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
             ("GET" | "HEAD", "/api/interfaces") => {
                 let body = serde_json::to_vec(&json!({ "interfaces": iface::list() }))
                     .unwrap_or_else(|_| b"{}".to_vec());
-                respond(
+                respond_extra(
                     &mut stream,
                     "200 OK",
                     "application/json; charset=utf-8",
                     &body,
+                    method == "HEAD",
+                    keep,
+                    acao,
+                );
+            }
+            ("GET" | "HEAD", "/fleet") | ("GET" | "HEAD", "/fleet.html") => {
+                // A separate page for watching several hosts at once. It is a
+                // static asset; the hosts it polls live in the browser.
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "text/html; charset=utf-8",
+                    FLEET_HTML.as_bytes(),
+                    method == "HEAD",
+                    keep,
+                );
+            }
+            ("GET" | "HEAD", "/manifest.webmanifest") => {
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/manifest+json; charset=utf-8",
+                    MANIFEST_JSON.as_bytes(),
                     method == "HEAD",
                     keep,
                 );
@@ -1813,6 +1870,20 @@ fn respond<W: Write>(
     head_only: bool,
     keep_alive: bool,
 ) {
+    respond_extra(stream, status, ctype, body, head_only, keep_alive, "");
+}
+
+/// Like [`respond`] but injects `extra` header lines (already CRLF-terminated)
+/// before the blank line — used for the opt-in CORS header.
+fn respond_extra<W: Write>(
+    stream: &mut W,
+    status: &str,
+    ctype: &str,
+    body: &[u8],
+    head_only: bool,
+    keep_alive: bool,
+    extra: &str,
+) {
     let conn = if keep_alive { "keep-alive" } else { "close" };
     let _ = write!(
         stream,
@@ -1825,7 +1896,7 @@ fn respond<W: Write>(
          X-Frame-Options: DENY\r\n\
          Referrer-Policy: no-referrer\r\n\
          Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\n\
-         \r\n",
+         {extra}\r\n",
         body.len()
     );
     if !head_only && !body.is_empty() {
@@ -2863,6 +2934,19 @@ mod tests {
         Arc<AtomicBool>,
         thread::JoinHandle<()>,
     ) {
+        start_test_server_with_store_cors_alerts(store, false, alerts)
+    }
+
+    fn start_test_server_with_store_cors_alerts(
+        store: Arc<KeyStore>,
+        cors: bool,
+        alerts: AlertConfig,
+    ) -> (
+        SocketAddr,
+        Arc<Server>,
+        Arc<AtomicBool>,
+        thread::JoinHandle<()>,
+    ) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
         let local = listener.local_addr().expect("local addr");
         let cfg = ServeConfig {
@@ -2872,6 +2956,7 @@ mod tests {
             max_procs: 20,
             store: Some(store),
             alerts,
+            cors,
             ..ServeConfig::default()
         };
         let server = Arc::new(
@@ -3097,6 +3182,49 @@ mod tests {
         let err = load_tls(&empty, &empty).unwrap_err();
         assert!(err.contains("CERTIFICATE"), "error was: {err}");
         let _ = std::fs::remove_file(&empty);
+    }
+
+    #[test]
+    fn fleet_page_and_manifest_are_served() {
+        let store = scoped_store();
+        let (addr, server, stop, handle) =
+            start_test_server_with_store(store, AlertConfig::default());
+        wait_for_payload(addr, &server, Some("admintok"), "first payload");
+
+        let f = http_get_with_auth(addr, "/fleet", &auth("viewtok"));
+        assert_eq!(f.status, 200);
+        assert!(String::from_utf8_lossy(&f.body).contains("sysview fleet"));
+
+        let m = http_get_with_auth(addr, "/manifest.webmanifest", &auth("viewtok"));
+        assert_eq!(m.status, 200);
+        assert!(String::from_utf8_lossy(&m.body).contains("short_name"));
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+    }
+
+    #[test]
+    fn cors_headers_are_opt_in() {
+        // Default: no CORS header on read responses.
+        let store = scoped_store();
+        let (addr, server, stop, handle) =
+            start_test_server_with_store(store, AlertConfig::default());
+        wait_for_payload(addr, &server, Some("admintok"), "first payload");
+        let r = http_get_with_auth(addr, "/api/snapshot", &auth("viewtok"));
+        assert_eq!(r.status, 200);
+        assert!(r.header("access-control-allow-origin").is_none());
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+
+        // --cors adds it.
+        let store = scoped_store();
+        let (addr, server, stop, handle) =
+            start_test_server_with_store_cors_alerts(store, true, AlertConfig::default());
+        wait_for_payload(addr, &server, Some("admintok"), "first payload");
+        let r = http_get_with_auth(addr, "/api/snapshot", &auth("viewtok"));
+        assert_eq!(r.header("access-control-allow-origin"), Some("*"));
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
     }
 
     fn tcp_connect(addr: SocketAddr) -> TcpStream {

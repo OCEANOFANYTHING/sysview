@@ -185,6 +185,9 @@ pub enum Section {
         /// PEM private key for --tls-cert
         #[arg(long, value_name = "FILE", requires = "tls_cert")]
         tls_key: Option<PathBuf>,
+        /// Send CORS headers so the fleet page on another origin can poll here
+        #[arg(long)]
+        cors: bool,
     },
     /// Manage dashboard access keys (add, remove, expiry)
     Key {
@@ -283,6 +286,7 @@ fn main() {
             alert_cooldown,
             tls_cert,
             tls_key,
+            cors,
         }) => {
             let alerts = serve::AlertConfig {
                 cpu: alert_cpu,
@@ -307,6 +311,7 @@ fn main() {
                 kiosk,
                 alerts,
                 tls,
+                cors,
             );
             return;
         }
@@ -412,6 +417,7 @@ fn run_serve(
     kiosk: bool,
     alerts: serve::AlertConfig,
     tls: Option<serve::TlsFiles>,
+    cors: bool,
 ) {
     let settings_path = paths::settings_file();
     let stored = settings::Settings::load(&settings_path);
@@ -448,6 +454,7 @@ fn run_serve(
         settings_path: Some(settings_path),
         alerts,
         tls,
+        cors,
     };
     if let Err(e) = serve::run(cfg) {
         eprintln!("sysview serve: {e}");
