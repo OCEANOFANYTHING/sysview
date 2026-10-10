@@ -38,8 +38,9 @@
 //! - `no-store` + `nosniff` + frame deny + CSP + no-referrer headers.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::fs;
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -47,6 +48,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -144,6 +146,15 @@ pub struct ServeConfig {
     /// Threshold alerts + webhook. Disabled by default; when enabled the
     /// sampler also runs while idle so alerts fire with no viewer connected.
     pub alerts: AlertConfig,
+    /// PEM cert/key for HTTPS. When set, the listener speaks TLS.
+    pub tls: Option<TlsFiles>,
+}
+
+/// Paths to the PEM-encoded certificate chain and private key used for HTTPS.
+#[derive(Clone, Debug)]
+pub struct TlsFiles {
+    pub cert: PathBuf,
+    pub key: PathBuf,
 }
 
 /// Threshold alerts. `enabled()` is true only when a webhook and at least one
@@ -191,6 +202,7 @@ impl Default for ServeConfig {
             store: None,
             settings_path: None,
             alerts: AlertConfig::default(),
+            tls: None,
         }
     }
 }
@@ -390,10 +402,11 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
     let server = Server::start(&cfg)?;
 
     let has_auth = server.shared.store.has_any(keys::now_unix());
-    println!("sysview dashboard: http://{local}/");
+    let scheme = if cfg.tls.is_some() { "https" } else { "http" };
+    println!("sysview dashboard: {scheme}://{local}/");
     if has_auth {
         match &cfg.token {
-            Some(t) => println!("  auth: token required  (URL: http://{local}/?token={t})"),
+            Some(t) => println!("  auth: token required  (URL: {scheme}://{local}/?token={t})"),
             None => println!(
                 "  auth: token required  ({} key(s) configured; open the dashboard with ?token=…)",
                 server.shared.store.all().len()
@@ -418,11 +431,11 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
         match detected_lan_ipv4() {
             Some(ip) => {
                 println!("  reachable from any device on the network:");
-                println!("    http://{ip}:{}/{}", cfg.port, suffix);
+                println!("    {scheme}://{ip}:{}/{}", cfg.port, suffix);
             }
             None => {
                 println!("  bound on all interfaces — open it from any device at");
-                println!("    http://<this-host-ip>:{}/{}", cfg.port, suffix);
+                println!("    {scheme}://<this-host-ip>:{}/{}", cfg.port, suffix);
             }
         }
     }
@@ -447,6 +460,8 @@ struct Server {
     shared: Arc<Shared>,
     timeouts: Timeouts,
     stop: Arc<AtomicBool>,
+    /// rustls server config when HTTPS is enabled; shared by every connection.
+    tls: Option<Arc<rustls::ServerConfig>>,
 }
 
 impl Server {
@@ -492,6 +507,13 @@ impl Server {
             Arc::clone(&stop),
             cfg.alerts.clone(),
         );
+        let tls = match &cfg.tls {
+            Some(t) => Some(
+                load_tls(&t.cert, &t.key)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
+            ),
+            None => None,
+        };
         // Wait until the first payload is ready so the very first client never
         // sees an empty "warming up" response.
         for _ in 0..400 {
@@ -504,6 +526,7 @@ impl Server {
             shared,
             timeouts,
             stop,
+            tls,
         })
     }
 
@@ -520,6 +543,10 @@ impl Server {
                     let mut s = s;
                     let _ = s.set_nonblocking(false);
                     let peer = addr.ip();
+                    // Socket timeouts live on the raw TCP stream; the TLS
+                    // wrapper reads and writes through it, so it inherits them.
+                    let _ = s.set_write_timeout(Some(self.timeouts.write));
+                    let _ = s.set_read_timeout(Some(self.timeouts.read));
                     if self.shared.conns.fetch_add(1, Ordering::SeqCst) >= MAX_CONNS {
                         self.shared.conns.fetch_sub(1, Ordering::SeqCst);
                         #[cfg(test)]
@@ -535,11 +562,22 @@ impl Server {
                         continue;
                     }
                     let shared = Arc::clone(&self.shared);
-                    let timeouts = self.timeouts;
+                    let tls = self.tls.clone();
                     match thread::Builder::new().stack_size(CONN_STACK_SIZE).spawn({
                         let shared = Arc::clone(&shared);
                         move || {
-                            handle_conn(s, shared.clone(), timeouts, peer);
+                            // The TLS handshake is lazy: it completes on the
+                            // first read inside `handle_conn`, so a client that
+                            // just connects and goes away costs nothing.
+                            match tls {
+                                Some(config) => {
+                                    if let Ok(conn) = rustls::ServerConnection::new(config) {
+                                        let mut stream = rustls::StreamOwned::new(conn, s);
+                                        handle_conn(&mut stream, shared.clone(), peer);
+                                    }
+                                }
+                                None => handle_conn(&mut s, shared.clone(), peer),
+                            }
                             shared.conns.fetch_sub(1, Ordering::SeqCst);
                         }
                     }) {
@@ -1337,11 +1375,7 @@ fn esc_label(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts, peer: IpAddr) {
-    let _ = stream.set_write_timeout(Some(timeouts.write));
-    // Per-read idle timeout: a keep-alive connection that goes quiet is
-    // released after a few seconds instead of parking a thread.
-    let _ = stream.set_read_timeout(Some(timeouts.read));
+fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr) {
     // Buffered bytes that were read past the last request head. Kept
     // across iterations so pipelined requests (a socket read may grab
     // several heads at once) are not lost between keep-alive cycles.
@@ -1771,8 +1805,8 @@ fn requires_admin(method: &str, path: &str) -> bool {
     ) || method == "POST"
 }
 
-fn respond(
-    stream: &mut TcpStream,
+fn respond<W: Write>(
+    stream: &mut W,
     status: &str,
     ctype: &str,
     body: &[u8],
@@ -1818,7 +1852,7 @@ fn header_value<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 /// Reads a `Content-Length`-delimited request body, drawing first on bytes that
 /// followed the head and then on the socket. Leftover bytes beyond the body are
 /// kept in `rest` so pipelined requests are not lost.
-fn read_body(head: &str, rest: &mut Vec<u8>, stream: &mut TcpStream) -> Result<Vec<u8>, ()> {
+fn read_body<R: Read>(head: &str, rest: &mut Vec<u8>, stream: &mut R) -> Result<Vec<u8>, ()> {
     let len = header_value(head, "content-length")
         .and_then(|v| v.trim().parse::<usize>().ok())
         .unwrap_or(0);
@@ -1845,6 +1879,85 @@ fn read_body(head: &str, rest: &mut Vec<u8>, stream: &mut TcpStream) -> Result<V
         }
     }
     Ok(body)
+}
+
+/// Loads a PEM certificate chain and private key into a rustls server config.
+/// The PEM parse is hand-rolled (no `rustls-pemfile` dependency): the format is
+/// a base64 body between BEGIN/END markers, and `PrivateKeyDer::try_from`
+/// already understands PKCS#8, PKCS#1 and SEC1 key bodies.
+pub fn load_tls(cert: &Path, key: &Path) -> Result<Arc<rustls::ServerConfig>, String> {
+    let cert_pem =
+        fs::read_to_string(cert).map_err(|e| format!("cannot read {}: {e}", cert.display()))?;
+    let key_pem =
+        fs::read_to_string(key).map_err(|e| format!("cannot read {}: {e}", key.display()))?;
+
+    let certs = pem_blocks(&cert_pem, "CERTIFICATE")?;
+    if certs.is_empty() {
+        return Err(format!("no CERTIFICATE block in {}", cert.display()));
+    }
+    let chain: Vec<CertificateDer<'static>> = certs.into_iter().map(CertificateDer::from).collect();
+
+    let mut key_der = pem_blocks(&key_pem, "PRIVATE KEY")?;
+    if key_der.is_empty() {
+        key_der = pem_blocks(&key_pem, "RSA PRIVATE KEY")?;
+    }
+    if key_der.is_empty() {
+        key_der = pem_blocks(&key_pem, "EC PRIVATE KEY")?;
+    }
+    let key = key_der
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("no PRIVATE KEY block in {}", key.display()))?;
+    let key = PrivateKeyDer::try_from(key).map_err(|e| format!("bad private key: {e}"))?;
+
+    let config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+        .map_err(|e| format!("TLS config error: {e}"))?;
+    Ok(Arc::new(config))
+}
+
+/// Extracts the DER bodies of every `-----BEGIN <kind>-----` block in `pem`.
+fn pem_blocks(pem: &str, kind: &str) -> Result<Vec<Vec<u8>>, String> {
+    let begin = format!("-----BEGIN {kind}-----");
+    let end = format!("-----END {kind}-----");
+    let mut out = Vec::new();
+    let mut rest = pem;
+    while let Some(b) = rest.find(&begin) {
+        let after = &rest[b + begin.len()..];
+        let Some(e) = after.find(&end) else {
+            return Err(format!("unterminated {kind} PEM block"));
+        };
+        out.push(b64_decode(&after[..e])?);
+        rest = &after[e + end.len()..];
+    }
+    Ok(out)
+}
+
+/// Minimal standard-alphabet base64 decode (whitespace ignored, `=` ends data).
+fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let mut buf: u32 = 0;
+    let mut bits: u32 = 0;
+    for &b in s.as_bytes() {
+        let v = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            b'\r' | b'\n' | b' ' | b'\t' => continue,
+            _ => return Err("invalid base64 in PEM".to_string()),
+        };
+        buf = (buf << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buf >> bits) as u8);
+        }
+    }
+    Ok(out)
 }
 
 /// Restarts the daemon after a settings/update change. Under systemd the unit
@@ -2310,7 +2423,7 @@ fn hex(b: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
+    use std::net::{SocketAddr, TcpStream};
 
     use super::*;
 
@@ -2946,6 +3059,44 @@ mod tests {
         stop.store(true, Ordering::Relaxed);
         let _ = handle.join();
         let _ = hook_thread.join();
+    }
+
+    #[test]
+    fn b64_decode_handles_padding_and_whitespace() {
+        assert_eq!(b64_decode("aGVsbG8=").unwrap(), b"hello");
+        assert_eq!(b64_decode("aGVs\nbG8=").unwrap(), b"hello");
+        assert_eq!(b64_decode("").unwrap(), Vec::<u8>::new());
+        assert!(b64_decode("****").is_err());
+    }
+
+    #[test]
+    fn pem_blocks_finds_every_block() {
+        let pem = "-----BEGIN CERTIFICATE-----\nAAEC\n-----END CERTIFICATE-----\n\
+                   junk\n-----BEGIN CERTIFICATE-----\nAwQF\n-----END CERTIFICATE-----\n";
+        let blocks = pem_blocks(pem, "CERTIFICATE").unwrap();
+        assert_eq!(blocks, vec![vec![0, 1, 2], vec![3, 4, 5]]);
+        assert!(pem_blocks(pem, "PRIVATE KEY").unwrap().is_empty());
+        assert!(pem_blocks("-----BEGIN CERTIFICATE-----\nAAEC\n", "CERTIFICATE").is_err());
+    }
+
+    #[test]
+    fn load_tls_reports_missing_and_empty_inputs() {
+        let missing = std::env::temp_dir().join("sysview-no-such-cert.pem");
+        let _ = std::fs::remove_file(&missing);
+        assert!(load_tls(&missing, &missing).is_err());
+
+        let empty = std::env::temp_dir().join(format!(
+            "sysview-empty-{}-{}.pem",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&empty, "not a pem").unwrap();
+        let err = load_tls(&empty, &empty).unwrap_err();
+        assert!(err.contains("CERTIFICATE"), "error was: {err}");
+        let _ = std::fs::remove_file(&empty);
     }
 
     fn tcp_connect(addr: SocketAddr) -> TcpStream {

@@ -11,6 +11,7 @@ mod update;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::io::Write;
+use std::path::PathBuf;
 use sysinfo::System;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -178,6 +179,12 @@ pub enum Section {
         /// Minimum seconds between repeats of the same alert
         #[arg(long, default_value_t = 300)]
         alert_cooldown: u64,
+        /// Serve HTTPS using this PEM certificate chain (needs --tls-key)
+        #[arg(long, value_name = "FILE", requires = "tls_key")]
+        tls_cert: Option<PathBuf>,
+        /// PEM private key for --tls-cert
+        #[arg(long, value_name = "FILE", requires = "tls_cert")]
+        tls_key: Option<PathBuf>,
     },
     /// Manage dashboard access keys (add, remove, expiry)
     Key {
@@ -274,6 +281,8 @@ fn main() {
             alert_disk,
             alert_webhook,
             alert_cooldown,
+            tls_cert,
+            tls_key,
         }) => {
             let alerts = serve::AlertConfig {
                 cpu: alert_cpu,
@@ -284,6 +293,10 @@ fn main() {
                 webhook: alert_webhook,
                 cooldown: alert_cooldown,
             };
+            let tls = match (tls_cert, tls_key) {
+                (Some(cert), Some(key)) => Some(serve::TlsFiles { cert, key }),
+                _ => None,
+            };
             run_serve(
                 cli.interval,
                 port,
@@ -293,6 +306,7 @@ fn main() {
                 token,
                 kiosk,
                 alerts,
+                tls,
             );
             return;
         }
@@ -397,6 +411,7 @@ fn run_serve(
     token: Option<String>,
     kiosk: bool,
     alerts: serve::AlertConfig,
+    tls: Option<serve::TlsFiles>,
 ) {
     let settings_path = paths::settings_file();
     let stored = settings::Settings::load(&settings_path);
@@ -432,6 +447,7 @@ fn run_serve(
         store: None,
         settings_path: Some(settings_path),
         alerts,
+        tls,
     };
     if let Err(e) = serve::run(cfg) {
         eprintln!("sysview serve: {e}");
