@@ -99,8 +99,12 @@ sysview sensors                          Temperature sensors (if reported)
 sysview --watch --interval 1             Live refresh every second
 sysview serve                            Embedded web dashboard on :8080
 sysview serve --port 9090 --bind 0.0.0.0 Remote dashboard on all interfaces
+sysview serve --interface wlan0          Bind to a named interface's IPv4
 sysview serve --kiosk                    Start in kiosk mode (fullscreen)
 sysview serve --token s3cret             Require ?token=s3cret access
+sysview key add --expires 30d            Generate an expiring access key
+sysview key list                         List keys (label / masked / expiry)
+sysview update                           Update to the latest release
 ```
 
 ## Embedded web dashboard
@@ -141,7 +145,17 @@ default, with a one-click retro legacy theme):
 - **Mini trends:** per-interface RX/TX and per-sensor temperature sparklines,
   accumulated entirely client-side (zero server memory).
 - **Header load line:** load average (Unix only) with a tiny sparkline plus
-  uptime, shown for every platform; Windows falls back to uptime alone.
+  uptime, shown for every platform; Windows falls back to uptime alone. The
+  **Load** card now also shows a gauge of the 1-minute load relative to the core
+  count.
+- **CPU temperature card:** a dedicated card picks the most CPU-representative
+  temperature sensor (a label naming the CPU/package/core wins, otherwise the
+  hottest reading) and shows it as a gauge plus a client-side trend spark. It
+  hides itself on machines that report no temperatures.
+- **Settings panel:** a gear button in the header opens a live panel for the
+  refresh interval, process cap and kiosk default (applied instantly), the
+  network bind / interface / port (with a **restart** button), access-key
+  management, and version / self-update. Everything persists across restarts.
 - **Persisted prefs:** refresh interval, process sort and the name/user filter
   are remembered in localStorage across reloads.
 - **Download:** the "↓" button saves the current snapshot as a JSON file,
@@ -284,6 +298,47 @@ or Wi-Fi at 1–2 s refresh.
 > owners, CPU/RAM/disk usage, network traffic — so loopback is the safe
 > default and `0.0.0.0` is the explicit, documented choice.
 
+### Access keys
+
+Beyond `--token`, credentials can live in a keys file, in the environment, or
+both, and each can carry a label and an expiry:
+
+```bash
+sysview key add --label phone --expires 30d       # generate a 32-char token
+sysview key add --label tv --expires 1y --replace # also drop the previous keys
+sysview key list                                  # label / masked token / expiry
+sysview key rm phone
+sysview key expire tv --expires never
+```
+
+Expiry accepts `7d`, `30d`, `90d`, `6mo`, `1y`, `never`, a bare day count, or an
+explicit `YYYY-MM-DD` date. Environment keys never expire and are read-only in
+the UI:
+
+- `SYSVIEW_TOKEN` — a single token.
+- `SYSVIEW_KEYS` — `label:token[:expires]` entries, comma- or semicolon-separated.
+
+The keys file and the settings file live in a per-user state directory
+(`$XDG_STATE_HOME/sysview`, `%LOCALAPPDATA%\sysview`, or `~/.local/state/sysview`),
+overridable with `SYSVIEW_STATE`, `SYSVIEW_KEYS_FILE` and `SYSVIEW_SETTINGS_FILE`.
+The keys file is re-read only when its size or mtime changes, comparisons are
+constant-time, and the dashboard only ever sees masked tokens.
+
+### Self-update
+
+```bash
+sysview update --check   # is a newer release available?
+sysview update           # download, verify and swap the binary in place
+sysview update --force   # reinstall even when the version already matches
+```
+
+`update` fetches the release over HTTPS with a bundled client (no `git`, `curl`
+or package manager needed), verifies it against the release's `SHA256SUMS`, and
+replaces the running binary atomically. Your token and settings are untouched,
+so existing dashboard URLs keep working. The same flow is a button in the
+dashboard's Settings panel. On Linux under `systemd`, set `Restart=always` so the
+process comes back after the swap.
+
 ## Debian / headless server setup (SSH)
 
 Prebuilt binaries are published on the [Releases] page; the Linux build is
@@ -305,7 +360,10 @@ by itself with the same token/port — nothing to configure. It also restarts on
 any crash and enforces a 256 MB memory ceiling. Like the CLI, it defaults to
 loopback (`BIND=127.0.0.1`), so the printed URL is local: reach it over an SSH
 tunnel, or rerun with `BIND=0.0.0.0` to expose it on the LAN (the token is
-always required).
+always required). The service's writable state (`SYSVIEW_STATE=/var/lib/sysview`,
+created via systemd `StateDirectory=sysview`) holds dashboard-managed keys and
+settings; the `SYSVIEW_TOKEN` from `/etc/sysview/env` is the always-valid admin
+token and shows as read-only in the UI.
 
 ### SSH tunnel instead of an open port
 
@@ -420,8 +478,9 @@ so they are never pinned in this doc.
 |---|---|
 | `--port <n>` | HTTP port (default 8080) |
 | `--bind <addr>` | Address to bind (default `127.0.0.1` loopback; use `0.0.0.0` for remote, or a specific LAN IP like `192.168.100.114`). If the address isn't on any interface yet — e.g. right after boot, before Wi-Fi/DHCP has an IP — `serve` waits up to 30 s for it and then binds, so a pinned address survives reboots |
+| `--interface <name>` | Bind to a named interface's current IPv4 (e.g. `wlan0`, `en0`, `Wi-Fi`); conflicts with `--bind`. Handy when the address can change between boots |
 | `--max-procs <n>` | Max processes sent to the dashboard (default 100) |
-| `--token <secret>` | Require `?token=<secret>` or `Authorization: Bearer` |
+| `--token <secret>` | Require `?token=<secret>` or `Authorization: Bearer`. Also accepted from `SYSVIEW_TOKEN` / `SYSVIEW_KEYS`, the keys file, or the dashboard Settings panel |
 | `--kiosk` | Start in kiosk mode (fullscreen, minimal chrome) |
 
 ## Notes
@@ -464,7 +523,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.1.6 && git push origin v0.1.6
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -475,6 +534,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.2.0** | **Self-update** (`sysview update` + a dashboard button) over a bundled HTTPS client, checksum-verified, no `git`/`curl` needed — token and settings preserved so URLs never change. **Multiple access keys** with labels and expiry (keys file + `SYSVIEW_TOKEN`/`SYSVIEW_KEYS`, `sysview key add/list/rm/expire`), plus a dashboard **Settings** panel for keys, live interval/process-cap/kiosk, network bind/interface/port and updates. **`--interface <name>`** binds to a named adapter's current IPv4. New **CPU-temperature card** and a **load gauge**. |
 | **v0.1.6** | Reboot-proof binds: when a specific bind address isn't on any interface yet (Wi-Fi/DHCP still coming up right after boot), `serve` waits up to 30 s for it instead of crash-looping — so a pinned `--bind <lan-ip>` URL survives reboots cleanly. The live dashboard now binds to one stable address on the server. |
 | **v0.1.5** | Real sysview logo everywhere: site favicon + apple-touch icon + nav mark + hero masthead, and the dashboard serves the icon at `/favicon.ico` from a ~1.7 KB embedded PNG (the binary stays light). New demo-data legacy-theme screenshot on the site so you can see the retro look before downloading. |
 | **v0.1.4** | Kiosk escape button (and `Esc`) so wall displays don't need a keyboard; **legacy** retro theme with one-click switch back to **modern** (persisted, `?legacy=1`); full per-version changelog ([CHANGELOG.md](CHANGELOG.md)) now mirrored on the site's Releases section; docs language cleaned up (neutral operator wording, no private example addresses). |

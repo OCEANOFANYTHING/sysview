@@ -39,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.1.6",
+      "softwareVersion": "0.2.0",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -95,8 +95,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.6 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.1.6 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -106,7 +106,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.1.6</span>
+      <span class="brand-ver">v0.2.0</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -136,7 +136,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.6 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.0 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -157,7 +157,7 @@
           <span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span>
         </div>
         <div class="win-body">
-          <img src="assets/sysview-dashboard.png" width="800" height="898" alt="sysview web dashboard with demo data: CPU, per-core usage, memory, disk and network panels">
+          <img src="assets/sysview-dashboard.png" width="800" height="1636" alt="sysview web dashboard with demo data: CPU, per-core usage, memory, disk and network panels">
           <p class="cap">LIVE DASHBOARD, SERVED BY <code>sysview serve</code> &mdash; ONE SELF-CONTAINED PAGE, NOTHING TO INSTALL.
           HOSTNAME SHOWN IS FAKE, FOR THE DEMO SHOT.</p>
         </div>
@@ -170,7 +170,7 @@
           <span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span>
         </div>
         <div class="win-body">
-          <img src="assets/sysview-legacy-dashboard.png" width="800" height="1468" alt="sysview web dashboard in the legacy retro theme with demo data: silver bevels, navy title bar and classic panels">
+          <img src="assets/sysview-legacy-dashboard.png" width="800" height="1671" alt="sysview web dashboard in the legacy retro theme with demo data: silver bevels, navy title bar and classic panels">
           <p class="cap">THE SAME DASHBOARD IN THE LEGACY RETRO THEME &mdash; PRESS <code>LEGACY</code> IN THE HEADER TO SWITCH, OR OPEN IT DIRECTLY WITH <code>?legacy=1</code>. PURE CSS, NO EXTRA REQUESTS. DEMO DATA.</p>
         </div>
       </figure>
@@ -216,7 +216,8 @@
               <li>Live page embedded in the binary &mdash; no build step, no Node</li>
               <li>Per-core CPU sparklines, drawn crisply on HiDPI displays</li>
               <li>Shared 240-sample history across every connected device</li>
-              <li>Disk donuts, net/sensor mini-trends, kiosk mode with on-screen exit, retro legacy theme, snapshot JSON download</li>
+              <li>CPU-temperature card &amp; load gauge, disk donuts, net/sensor mini-trends, kiosk mode with on-screen exit, retro legacy theme, snapshot JSON download</li>
+              <li>Settings panel: manage access keys, interval, process cap, bind/interface/port and updates from the browser</li>
             </ul>
           </div>
         </article>
@@ -522,6 +523,19 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.2.0</b></td>
+                  <td>2026-10-10</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Self-update.</b> <code>sysview update</code> (and an <b>update</b> button in the dashboard) fetches the latest release over HTTPS with a tiny bundled client &mdash; no <code>git</code>, <code>curl</code> or package manager &mdash; verifies it against the release <code>SHA256SUMS</code>, and swaps the binary in place. Your token and settings are kept, so existing dashboard URLs never change.</li>
+                      <li><b>Multiple access keys, with expiry.</b> Credentials can come from a keys file, environment variables, or both; every key can carry a label and an expiry (<code>7d</code>, <code>30d</code>, <code>90d</code>, <code>6mo</code>, <code>1y</code>, <code>never</code> or a date) and is managed from <code>sysview key add/list/rm/expire</code> or the dashboard.</li>
+                      <li><b>Dashboard Settings panel.</b> A gear button opens a live panel for keys, refresh interval, process cap, kiosk default, network bind/interface/port (with a restart button) and updates &mdash; all persisted across restarts.</li>
+                      <li><b>CPU-temperature card &amp; load gauge.</b> A dedicated temperature card picks the CPU/package sensor (falling back to the hottest) with a gauge and trend spark, and the Load card now gauges the 1-minute load against the core count.</li>
+                      <li><b><code>--interface &lt;name&gt;</code>.</b> Bind to a named adapter's current IPv4 (e.g. <code>wlan0</code>, <code>en0</code>, <code>Wi-Fi</code>) instead of a fixed address.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.1.6</b></td>
                   <td>2026-10-09</td>
                   <td>
@@ -606,7 +620,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.1.6</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.0</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by

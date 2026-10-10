@@ -1,6 +1,6 @@
 [package]
 name = "sysview"
-version = "0.1.6"
+version = "0.2.0"
 edition = "2024"
 description = "Portable one-shot system stats viewer for Windows, Linux and macOS"
 license = "MIT"
@@ -8,8 +8,10 @@ license = "MIT"
 [dependencies]
 anstream = "1.0.0"
 clap = { version = "4.6.7", features = ["derive"] }
+minreq = { version = "3.0.0", features = ["https-rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.11.0"
 sysinfo = "0.39.6"
 
 [profile.release]

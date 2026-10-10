@@ -106,11 +106,15 @@ Wants=network-online.target
 Type=simple
 ExecStart=$BIN_DIR/$SVC --interval ${INTERVAL} serve --bind ${BIND} --port ${PORT} --max-procs ${MAX_PROCS} --token \${SYSVIEW_TOKEN}${KIOSK_ARGS}
 EnvironmentFile=$CFG_DIR/env
+# Writable state for dashboard-managed access keys and settings, created and
+# chowned to the throwaway service user by StateDirectory below.
+Environment=SYSVIEW_STATE=/var/lib/sysview
 Restart=always
 RestartSec=3
 # The daemon only reads /proc, /sys, /etc and binds a high port, so it runs
 # as a throwaway unprivileged user instead of root. (Keep PORT >= 1024.)
 DynamicUser=yes
+StateDirectory=sysview
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

@@ -3,8 +3,59 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.1.6` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.2.0` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.2.0] - 2026-10-10
+
+### Added
+
+- **Self-update with no external tools.** `sysview update` (and an **update**
+  button in the dashboard) fetches the latest release over HTTPS with a tiny
+  bundled client (`minreq` + rustls), verifies it against the release's
+  `SHA256SUMS`, and replaces the running binary in place. No `git`, `curl`, or
+  package manager needed — it works on Windows, Linux and macOS. Your token and
+  settings are never touched, so existing dashboard URLs keep working. Use
+  `sysview update --check` to only look, `--force` to reinstall. On Windows the
+  running `.exe` is renamed aside and the leftover is cleaned up on next start.
+- **CPU temperature card & load gauge.** The dashboard gains a CPU-temperature
+  card (it picks the CPU/package sensor by label, falling back to the hottest)
+  with its own gauge and trend spark, and the Load card now shows a gauge of the
+  1-minute load relative to the core count alongside the uptime.
+- **Multiple access keys, with expiry.** Credentials can come from a keys file,
+  the environment, or both; every key can carry a label and an expiry
+  (`7d`, `30d`, `90d`, `6mo`, `1y`, `never`, or a `YYYY-MM-DD` date). Manage them
+  from the CLI:
+
+  ```
+  sysview key add --label phone --expires 30d     # generates a token
+  sysview key add --label tv --expires 1y --replace
+  sysview key list
+  sysview key rm phone
+  sysview key expire tv --expires never
+  ```
+
+  or from the new **Settings** panel in the dashboard (add, delete, change
+  expiry, rotate in place). Keys also come from `SYSVIEW_TOKEN` and
+  `SYSVIEW_KEYS` (`label:token[:expires],…`) environment variables, which are
+  read-only in the UI and never expire. Comparisons stay constant-time and the
+  keys file is re-read only when it changes on disk.
+- **`--interface <name>`.** Bind to a named interface (e.g. `wlan0`, `en0`,
+  `Wi-Fi`) instead of a fixed address; `serve` resolves its current IPv4 at
+  startup and tells you the available interfaces if the name is unknown.
+- **Settings panel.** A gear button in the dashboard opens a live panel for the
+  refresh interval, process cap and kiosk default (applied instantly), the
+  network bind/interface/port (with a **restart** button), key management, and
+  version/update. Everything persists across restarts.
+
+### Changed
+
+- Server settings from the panel are stored next to the keys file and merged at
+  startup with the precedence **explicit CLI flag > saved setting > built-in
+  default**, so the UI can never silently shadow an explicit flag.
+- Live changes (interval, process cap, kiosk) need no restart; bind, interface
+  and port mark the server as needing one, and the restart honours `systemd`
+  when present and otherwise re-execs the binary.
 
 ## [v0.1.6] - 2026-10-09
 

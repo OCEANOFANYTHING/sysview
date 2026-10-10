@@ -1,7 +1,12 @@
 mod collect;
+mod iface;
+mod keys;
 mod model;
+mod paths;
 mod render;
 mod serve;
+mod settings;
+mod update;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
@@ -112,14 +117,17 @@ pub enum Section {
     /// Serve the embedded web dashboard (headless remote monitoring)
     Serve {
         /// HTTP port to listen on
-        #[arg(long, default_value_t = 8080)]
-        port: u16,
+        #[arg(long)]
+        port: Option<u16>,
         /// Address to bind (default loopback; use 0.0.0.0 for remote access)
-        #[arg(long, default_value = "127.0.0.1")]
-        bind: String,
+        #[arg(long)]
+        bind: Option<String>,
+        /// Bind to an interface by name (e.g. wlan0 / "Wi-Fi"); resolves its IPv4
+        #[arg(long, conflicts_with = "bind")]
+        interface: Option<String>,
         /// Max processes sent to the dashboard
-        #[arg(long, default_value_t = 100)]
-        max_procs: usize,
+        #[arg(long)]
+        max_procs: Option<usize>,
         /// Require this token (?token= or Authorization: Bearer header)
         #[arg(long)]
         token: Option<String>,
@@ -127,33 +135,85 @@ pub enum Section {
         #[arg(long)]
         kiosk: bool,
     },
+    /// Manage dashboard access keys (add, remove, expiry)
+    Key {
+        #[command(subcommand)]
+        cmd: KeyCmd,
+    },
+    /// Update sysview to the latest release (no git/curl needed)
+    Update {
+        /// Only check for a newer release; download nothing
+        #[arg(long)]
+        check: bool,
+        /// Reinstall even when already on the latest version
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Clone, Subcommand)]
+pub enum KeyCmd {
+    /// List configured keys (labels, masked tokens, expiry)
+    List,
+    /// Add a key (generates a token unless --token is given)
+    Add {
+        /// Human label for this key
+        #[arg(long)]
+        label: Option<String>,
+        /// Use a specific token instead of a generated one
+        #[arg(long)]
+        token: Option<String>,
+        /// Expiry: 7d, 30d, 90d, 6mo, 1y, never, or a date like 2026-12-31
+        #[arg(long, default_value = "never")]
+        expires: String,
+        /// Remove every other file key in the same step
+        #[arg(long)]
+        replace: bool,
+    },
+    /// Remove a key by token or label
+    Rm {
+        /// Token or label to remove
+        ident: String,
+    },
+    /// Change a key's expiry
+    Expire {
+        /// Token or label
+        ident: String,
+        /// Expiry: 7d, 30d, 90d, 6mo, 1y, never, or a date like 2026-12-31
+        #[arg(long, default_value = "never")]
+        expires: String,
+    },
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    // Serve the embedded web dashboard (blocks forever).
-    if let Some(Section::Serve {
-        port,
-        bind,
-        max_procs,
-        token,
-        kiosk,
-    }) = cli.section.clone()
-    {
-        let cfg = serve::ServeConfig {
-            bind,
+    // Clear a stale `<exe>.old` left by a previous Windows self-update, on
+    // whatever path this invocation takes (serve included).
+    update::cleanup_old_binary();
+
+    // Subcommands that run to completion on their own (serve / key / update).
+    match cli.section.clone() {
+        Some(Section::Serve {
             port,
-            interval_secs: cli.interval.max(0.1),
+            bind,
+            interface,
             max_procs,
             token,
             kiosk,
-        };
-        if let Err(e) = serve::run(cfg) {
-            eprintln!("sysview serve: {e}");
-            std::process::exit(1);
+        }) => {
+            run_serve(cli.interval, port, bind, interface, max_procs, token, kiosk);
+            return;
         }
-        return;
+        Some(Section::Key { cmd }) => {
+            run_key(cmd);
+            return;
+        }
+        Some(Section::Update { check, force }) => {
+            run_update(check, force);
+            return;
+        }
+        _ => {}
     }
 
     if cli.watch {
@@ -203,10 +263,208 @@ fn main() {
         }
         // Handled above (returns before this match runs).
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
+        Section::Key { .. } => unreachable!("key dispatch happens earlier"),
+        Section::Update { .. } => unreachable!("update dispatch happens earlier"),
     };
 
     let mut out = output_stream(&cli);
     let _ = writeln!(out, "{output}");
+}
+
+/// Resolves the effective serve config (CLI > saved settings > defaults),
+/// turning `--interface`/a saved interface into a bind address, then runs the
+/// dashboard to completion.
+fn run_serve(
+    interval_flag: f64,
+    port: Option<u16>,
+    bind: Option<String>,
+    interface: Option<String>,
+    max_procs: Option<usize>,
+    token: Option<String>,
+    kiosk: bool,
+) {
+    let settings_path = paths::settings_file();
+    let stored = settings::Settings::load(&settings_path);
+
+    // Explicit `--bind` beats a saved interface; explicit `--interface` beats a
+    // saved one; a saved interface applies only when neither was given.
+    let interface = if bind.is_some() {
+        None
+    } else {
+        interface.or_else(|| stored.interface.clone())
+    };
+    let bind = match &interface {
+        Some(name) => match iface::resolve_ipv4(name) {
+            Some(ip) => ip.to_string(),
+            None => {
+                eprintln!("sysview serve: interface '{name}' has no IPv4 address.");
+                eprint!("{}", iface::describe_all());
+                std::process::exit(1);
+            }
+        },
+        None => bind
+            .or_else(|| stored.bind.clone())
+            .unwrap_or_else(|| "127.0.0.1".to_string()),
+    };
+    let cfg = serve::ServeConfig {
+        bind,
+        port: port.or(stored.port).unwrap_or(8080),
+        interval_secs: stored.interval_secs.unwrap_or(interval_flag).max(0.1),
+        max_procs: max_procs.or(stored.max_procs).unwrap_or(100),
+        token,
+        kiosk: kiosk || stored.kiosk.unwrap_or(false),
+        interface,
+        store: None,
+        settings_path: Some(settings_path),
+    };
+    if let Err(e) = serve::run(cfg) {
+        eprintln!("sysview serve: {e}");
+        std::process::exit(1);
+    }
+}
+
+/// `sysview key …`: manages the keys file (env keys are always read-only).
+fn run_key(cmd: KeyCmd) {
+    let store = keys::KeyStore::from_env();
+    let now = keys::now_unix();
+    match cmd {
+        KeyCmd::List => {
+            let entries = store.entries();
+            if entries.is_empty() {
+                println!("no access keys configured.");
+                println!("add one with:  sysview key add --expires 30d");
+                return;
+            }
+            println!("{:<20} {:<20} {:<6} EXPIRES", "LABEL", "TOKEN", "SOURCE");
+            for (k, from_env) in entries {
+                let label = if k.label.is_empty() {
+                    "-"
+                } else {
+                    k.label.as_str()
+                };
+                let source = if from_env { "env" } else { "file" };
+                let expiry = if k.expires == 0 {
+                    "never".to_string()
+                } else if k.expired(now) {
+                    format!("expired ({})", keys::format_time(k.expires))
+                } else {
+                    keys::format_time(k.expires)
+                };
+                println!("{:<20} {:<20} {:<6} {}", label, k.masked(), source, expiry);
+            }
+            println!("\nkeys file: {}", store.file().display());
+        }
+        KeyCmd::Add {
+            label,
+            token,
+            expires,
+            replace,
+        } => {
+            let exp = match keys::parse_expiry(&expires, now) {
+                Ok(e) => e,
+                Err(e) => fail(&format!("sysview key: {e}")),
+            };
+            let token = token
+                .filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(keys::generate_token);
+            let label = label.unwrap_or_default();
+            if let Err(e) = store.add(keys::Key {
+                token: token.clone(),
+                label: label.clone(),
+                expires: exp,
+            }) {
+                fail(&format!("sysview key: {e}"));
+            }
+            if replace && let Err(e) = store.keep_only(&token) {
+                fail(&format!("sysview key: {e}"));
+            }
+            let what = if label.is_empty() {
+                "added key".to_string()
+            } else {
+                format!("added key '{label}'")
+            };
+            let extra = if replace {
+                " (replaced all others)"
+            } else {
+                ""
+            };
+            println!("{what}{extra}");
+            println!("  token:   {token}");
+            println!(
+                "  expires: {}",
+                if exp == 0 {
+                    "never".to_string()
+                } else {
+                    keys::format_time(exp)
+                }
+            );
+            println!("\nopen the dashboard with ?token={token}");
+            println!("or pin it in a service environment variable: SYSVIEW_TOKEN={token}");
+        }
+        KeyCmd::Rm { ident } => match store.remove(&ident) {
+            Ok(true) => println!("removed key '{ident}'"),
+            Ok(false) => fail(&format!(
+                "sysview key: no file key matches '{ident}' (environment keys are read-only)"
+            )),
+            Err(e) => fail(&format!("sysview key: {e}")),
+        },
+        KeyCmd::Expire { ident, expires } => {
+            let exp = match keys::parse_expiry(&expires, now) {
+                Ok(e) => e,
+                Err(e) => fail(&format!("sysview key: {e}")),
+            };
+            match store.set_expiry(&ident, exp) {
+                Ok(true) => println!(
+                    "set expiry for '{ident}' to {}",
+                    if exp == 0 {
+                        "never".to_string()
+                    } else {
+                        keys::format_time(exp)
+                    }
+                ),
+                Ok(false) => fail(&format!(
+                    "sysview key: no file key matches '{ident}' (environment keys are read-only)"
+                )),
+                Err(e) => fail(&format!("sysview key: {e}")),
+            }
+        }
+    }
+}
+
+/// `sysview update [--check] [--force]`.
+fn run_update(check: bool, force: bool) {
+    if check {
+        match update::check() {
+            Ok(update::Outcome::Available { current, latest }) => {
+                println!("update available: {current} -> {latest}");
+            }
+            Ok(update::Outcome::UpToDate { version }) => {
+                println!("sysview {version} is up to date");
+            }
+            Ok(_) => {}
+            Err(e) => fail(&format!("sysview update: {e}")),
+        }
+        return;
+    }
+    match update::perform(force) {
+        Ok(update::Outcome::Updated { from, to }) => {
+            println!("updated sysview {from} -> {to}");
+            println!("restart the dashboard to run the new build (the token is unchanged):");
+            println!("  systemctl restart sysview    # or just reopen the dashboard");
+        }
+        Ok(update::Outcome::UpToDate { version }) => {
+            println!("sysview {version} is already up to date (use --force to reinstall)");
+        }
+        Ok(update::Outcome::Available { current, latest }) => {
+            println!("update available: {current} -> {latest} (run without --check to install)");
+        }
+        Err(e) => fail(&format!("sysview update: {e}")),
+    }
+}
+
+fn fail(msg: &str) -> ! {
+    eprintln!("{msg}");
+    std::process::exit(1);
 }
 
 /// Adapts stdout for the CLI `--color` choice: `auto` enables VT processing

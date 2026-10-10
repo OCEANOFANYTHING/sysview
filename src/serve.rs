@@ -40,15 +40,21 @@
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::collect::{HISTORY_MAX, WebState};
+use crate::keys::{self, KeyStore};
 use crate::model::{MemoryInfo, WebDiskInfo, WebHistory, WebNetworkInfo};
+use crate::settings::Settings;
+use crate::{iface, update};
 
 /// Static dashboard page, compiled into the binary.
 const DASHBOARD_HTML: &str = include_str!("../web/dashboard.html");
@@ -108,6 +114,31 @@ pub struct ServeConfig {
     pub max_procs: usize,
     pub token: Option<String>,
     pub kiosk: bool,
+    /// Interface name the bind address came from, when `--interface` was used
+    /// (purely informational — `bind` already holds the resolved address).
+    pub interface: Option<String>,
+    /// Merged access-key store (env + keys file + `--token`). When `None`, the
+    /// server falls back to a store built from the environment.
+    pub store: Option<Arc<KeyStore>>,
+    /// Where dashboard-edited settings persist. `None` disables persistence
+    /// (used by tests).
+    pub settings_path: Option<PathBuf>,
+}
+
+impl Default for ServeConfig {
+    fn default() -> Self {
+        Self {
+            bind: "127.0.0.1".to_string(),
+            port: 8080,
+            interval_secs: 1.0,
+            max_procs: 100,
+            token: None,
+            kiosk: false,
+            interface: None,
+            store: None,
+            settings_path: None,
+        }
+    }
 }
 
 /// State shared with connection threads.
@@ -122,6 +153,26 @@ struct Shared {
     /// wakes up even for connections that last only a few milliseconds (every
     /// dashboard poll is its own short-lived HTTP connection).
     last_conn: Mutex<Instant>,
+    /// Live sampling interval in milliseconds (the settings page can change it
+    /// without a restart; the sampler reads it every tick).
+    interval_ms: AtomicU64,
+    /// Live max-processes cap for the dashboard payload.
+    max_procs: AtomicUsize,
+    /// Current kiosk default (drives the injected page class).
+    kiosk: AtomicBool,
+    /// The rendered dashboard page. Swapped (atomically, behind the mutex) when
+    /// kiosk/interval change, so no restart is needed.
+    html: Mutex<Arc<str>>,
+    /// Merged credential store used by the auth gate and the settings page.
+    store: Arc<KeyStore>,
+    /// Persisted dashboard settings (bind/interface/port/interval/kiosk).
+    settings: Mutex<Settings>,
+    /// Where the settings file lives (`None` = do not persist).
+    settings_path: Option<PathBuf>,
+    /// Effective bind address, port and source interface (informational).
+    bind: String,
+    port: u16,
+    interface: Option<String>,
     /// Test-only observability: true while the sampler is actively sampling,
     /// false once it has dropped the state for idle. In production the
     /// observable signal is the payload 503/200 transition.
@@ -133,6 +184,24 @@ struct Shared {
     /// the refusal body.
     #[cfg(test)]
     rejected: AtomicUsize,
+}
+
+impl Shared {
+    fn current_html(&self) -> Arc<str> {
+        Arc::clone(&self.html.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    fn interval_secs(&self) -> f64 {
+        (self.interval_ms.load(Ordering::Relaxed) as f64 / 1000.0).max(0.1)
+    }
+
+    fn max_procs(&self) -> usize {
+        self.max_procs.load(Ordering::Relaxed).max(1)
+    }
+
+    fn is_kiosk(&self) -> bool {
+        self.kiosk.load(Ordering::Relaxed)
+    }
 }
 
 /// Records that a dashboard viewer just pulled live data. This is what keeps
@@ -209,15 +278,24 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
     let local = listener.local_addr()?;
     let server = Server::start(&cfg)?;
 
-    let has_auth = cfg.token.is_some();
+    let has_auth = server.shared.store.has_any(keys::now_unix());
     println!("sysview dashboard: http://{local}/");
-    if let Some(t) = &cfg.token {
-        println!("  auth: token required  (URL: http://{local}/?token={t})");
+    if has_auth {
+        match &cfg.token {
+            Some(t) => println!("  auth: token required  (URL: http://{local}/?token={t})"),
+            None => println!(
+                "  auth: token required  ({} key(s) configured; open the dashboard with ?token=…)",
+                server.shared.store.all().len()
+            ),
+        }
     }
     println!(
         "  sample every {:.0}s, {} processes, history: 240 pts, kiosk: {}",
         cfg.interval_secs, cfg.max_procs, cfg.kiosk
     );
+    if let Some(name) = &cfg.interface {
+        println!("  bound to interface {name} -> {}", cfg.bind);
+    }
     println!("  sampling pauses while no dashboard is open (near-zero memory) and");
     println!("  auto-resumes on connect; the shared history window is preserved.");
     if is_lan_bind(&cfg.bind) {
@@ -242,7 +320,8 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
             "  WARNING: no token set and binding {}. Anyone who can reach",
             cfg.bind
         );
-        println!("           this port can read live system stats. Use --token <secret>.");
+        println!("           this port can read live system stats (and open Settings).");
+        println!("           Run `sysview key add` to create one.");
     }
     println!("  press Ctrl+C to stop");
 
@@ -255,8 +334,6 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
 /// on the main thread; tests spawn it in a helper thread and signal `stop`.
 struct Server {
     shared: Arc<Shared>,
-    html: Arc<str>,
-    token: Option<String>,
     timeouts: Timeouts,
     stop: Arc<AtomicBool>,
 }
@@ -271,23 +348,33 @@ impl Server {
 
     fn start_with_timeouts(cfg: &ServeConfig, timeouts: Timeouts) -> std::io::Result<Self> {
         let html: Arc<str> = Arc::from(render_dashboard(cfg));
+        let store = build_store(cfg);
+        let settings = cfg
+            .settings_path
+            .as_ref()
+            .map(|p| Settings::load(p))
+            .unwrap_or_default();
         let shared = Arc::new(Shared {
             latest: Mutex::new(None),
             conns: AtomicUsize::new(0),
             last_conn: Mutex::new(Instant::now()),
+            interval_ms: AtomicU64::new((cfg.interval_secs.max(0.1) * 1000.0).round() as u64),
+            max_procs: AtomicUsize::new(cfg.max_procs.max(1)),
+            kiosk: AtomicBool::new(cfg.kiosk),
+            html: Mutex::new(html),
+            store,
+            settings: Mutex::new(settings),
+            settings_path: cfg.settings_path.clone(),
+            bind: cfg.bind.clone(),
+            port: cfg.port,
+            interface: cfg.interface.clone(),
             #[cfg(test)]
             sampling: AtomicBool::new(false),
             #[cfg(test)]
             rejected: AtomicUsize::new(0),
         });
         let stop = Arc::new(AtomicBool::new(false));
-        start_sampler(
-            Arc::clone(&shared),
-            cfg.max_procs,
-            cfg.interval_secs,
-            timeouts.idle_grace,
-            Arc::clone(&stop),
-        );
+        start_sampler(Arc::clone(&shared), timeouts.idle_grace, Arc::clone(&stop));
         // Wait until the first payload is ready so the very first client never
         // sees an empty "warming up" response.
         for _ in 0..400 {
@@ -298,8 +385,6 @@ impl Server {
         }
         Ok(Self {
             shared,
-            html,
-            token: cfg.token.clone(),
             timeouts,
             stop,
         })
@@ -332,13 +417,11 @@ impl Server {
                         continue;
                     }
                     let shared = Arc::clone(&self.shared);
-                    let html = Arc::clone(&self.html);
-                    let token = self.token.clone();
                     let timeouts = self.timeouts;
                     match thread::Builder::new().stack_size(CONN_STACK_SIZE).spawn({
                         let shared = Arc::clone(&shared);
                         move || {
-                            handle_conn(s, shared.clone(), html, token, timeouts);
+                            handle_conn(s, shared.clone(), timeouts);
                             shared.conns.fetch_sub(1, Ordering::SeqCst);
                         }
                     }) {
@@ -385,8 +468,14 @@ impl Server {
 
 /// Injects the runtime config (poll interval, kiosk) into the static page.
 fn render_dashboard(cfg: &ServeConfig) -> String {
-    let poll_ms = (cfg.interval_secs.max(0.1) * 1000.0).round() as u64;
-    let body_class = if cfg.kiosk {
+    render_dashboard_parts(cfg.interval_secs, cfg.kiosk)
+}
+
+/// Renders the page for a given interval/kiosk combination. Re-runnable when
+/// the settings page flips those, so no restart is needed.
+fn render_dashboard_parts(interval_secs: f64, kiosk: bool) -> String {
+    let poll_ms = (interval_secs.max(0.1) * 1000.0).round() as u64;
+    let body_class = if kiosk {
         "dashboard kiosk"
     } else {
         "dashboard"
@@ -394,6 +483,25 @@ fn render_dashboard(cfg: &ServeConfig) -> String {
     DASHBOARD_HTML
         .replace("var POLL = 2000;", &format!("var POLL = {poll_ms};"))
         .replace("class=\"dashboard\"", &format!("class=\"{body_class}\""))
+}
+
+/// Builds the credential store for a server start: an explicit store if the
+/// caller prepared one, otherwise env keys plus any `--token`.
+fn build_store(cfg: &ServeConfig) -> Arc<KeyStore> {
+    if let Some(s) = &cfg.store {
+        return Arc::clone(s);
+    }
+    let mut env = keys::env_keys();
+    if let Some(t) = &cfg.token
+        && !env.iter().any(|k| k.token == *t)
+    {
+        env.push(keys::Key {
+            token: t.clone(),
+            label: "cli".into(),
+            expires: 0,
+        });
+    }
+    Arc::new(KeyStore::new(crate::paths::keys_file(), env))
 }
 
 /// Background sampler: the single writer of `WebState`.
@@ -406,20 +514,20 @@ fn render_dashboard(cfg: &ServeConfig) -> String {
 /// starting over. Returns the thread handle; signal `stop` to exit cleanly.
 fn start_sampler(
     shared: Arc<Shared>,
-    max_procs: usize,
-    interval: f64,
     idle_grace: Duration,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
-    let interval = interval.max(0.1);
     thread::spawn(move || {
         let mut st: Option<WebState> = None;
+        let mut last_mp = 0usize;
         let mut ring = HistoryRing::new();
         loop {
             if stop.load(Ordering::Relaxed) {
                 break;
             }
             let t0 = Instant::now();
+            let interval = shared.interval_secs();
+            let max_procs = shared.max_procs();
             let active_conns = shared.conns.load(Ordering::Relaxed);
             let last_conn = match shared.last_conn.lock() {
                 Ok(g) => *g,
@@ -428,9 +536,11 @@ fn start_sampler(
             let active = active_conns > 0 || last_conn.elapsed() <= idle_grace;
 
             if active {
-                // (Re)build sampling state on the first tick after idle.
-                if st.is_none() {
+                // (Re)build sampling state on the first tick after idle, and
+                // whenever the settings page changes the process cap.
+                if st.is_none() || last_mp != max_procs {
                     st = Some(WebState::new(max_procs));
+                    last_mp = max_procs;
                 }
                 #[cfg(test)]
                 shared.sampling.store(true, Ordering::Relaxed);
@@ -922,13 +1032,7 @@ fn esc_label(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn handle_conn(
-    mut stream: TcpStream,
-    shared: Arc<Shared>,
-    html: Arc<str>,
-    token: Option<String>,
-    timeouts: Timeouts,
-) {
+fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
     let _ = stream.set_write_timeout(Some(timeouts.write));
     // Per-read idle timeout: a keep-alive connection that goes quiet is
     // released after a few seconds instead of parking a thread.
@@ -975,12 +1079,12 @@ fn handle_conn(
             return;
         }
 
-        // Only GET/HEAD; reject everything else (POST, TRACE, ...) outright.
-        if method != "GET" && method != "HEAD" {
+        // Only GET/HEAD/POST; reject everything else (TRACE, ...) outright.
+        if method != "GET" && method != "HEAD" && method != "POST" {
             let _ = write!(
                 stream,
                 "HTTP/1.1 405 Method Not Allowed\r\n\
-                 Allow: GET, HEAD\r\n\
+                 Allow: GET, HEAD, POST\r\n\
                  Content-Length: 0\r\n\
                  Cache-Control: no-store\r\n\
                  Connection: close\r\n\
@@ -1025,32 +1129,60 @@ fn handle_conn(
             return;
         }
 
-        // Auth gate (constant-time compare) when a token is configured.
-        if let Some(tok) = &token {
-            let supplied = if !query.is_empty() {
+        // Read the (capped) request body for POST routes. Anything the head
+        // read already buffered after the separator is consumed first, and any
+        // remainder past this request's body is kept for pipelining.
+        let body = if method == "POST" {
+            match read_body(&text, &mut rest, &mut stream) {
+                Ok(b) => b,
+                Err(()) => {
+                    respond(
+                        &mut stream,
+                        "413 Payload Too Large",
+                        "text/plain; charset=utf-8",
+                        b"payload too large",
+                        false,
+                        false,
+                    );
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Auth gate: any configured, unexpired key (env, file, or --token) is
+        // accepted; the compare itself is constant-time inside the store.
+        let now = keys::now_unix();
+        let supplied = {
+            let q = if !query.is_empty() {
                 query_token(query)
             } else {
                 String::new()
             };
-            let ok =
-                (!supplied.is_empty() && ct_eq(&supplied, tok)) || ct_eq(&header_token(&text), tok);
-            if !ok {
-                respond(
-                    &mut stream,
-                    "401 Unauthorized",
-                    "text/plain; charset=utf-8",
-                    b"unauthorized",
-                    false,
-                    false,
-                );
-                return;
+            if !q.is_empty() {
+                q
+            } else {
+                header_token(&text)
             }
+        };
+        if shared.store.has_any(now) && !shared.store.validate(&supplied, now) {
+            respond(
+                &mut stream,
+                "401 Unauthorized",
+                "text/plain; charset=utf-8",
+                b"unauthorized",
+                false,
+                false,
+            );
+            return;
         }
 
-        match path {
-            "/" | "/index.html" => {
+        match (method, path) {
+            ("GET" | "HEAD", "/") | ("GET" | "HEAD", "/index.html") => {
                 // A dashboard viewer means "someone is watching" for idle gating.
                 mark_watching(&shared);
+                let html = shared.current_html();
                 respond(
                     &mut stream,
                     "200 OK",
@@ -1060,7 +1192,7 @@ fn handle_conn(
                     keep,
                 );
             }
-            "/api/snapshot" => {
+            ("GET" | "HEAD", "/api/snapshot") => {
                 // Read under the lock, respond while the guard is held: avoids a
                 // full 60-90 KB clone on every poll tick.
                 let guard = match shared.latest.lock() {
@@ -1094,7 +1226,7 @@ fn handle_conn(
                     ),
                 }
             }
-            "/metrics" => {
+            ("GET" | "HEAD", "/metrics") => {
                 // Prometheus text format over the current snapshot. Warm-up 503s
                 // behave like the snapshot route; scrapers re-arm idle gating.
                 let txt = {
@@ -1126,7 +1258,7 @@ fn handle_conn(
                     ),
                 }
             }
-            "/health" => {
+            ("GET" | "HEAD", "/health") => {
                 respond(
                     &mut stream,
                     "200 OK",
@@ -1136,7 +1268,7 @@ fn handle_conn(
                     keep,
                 );
             }
-            "/favicon.ico" => {
+            ("GET" | "HEAD", "/favicon.ico") => {
                 respond(
                     &mut stream,
                     "200 OK",
@@ -1145,6 +1277,105 @@ fn handle_conn(
                     method == "HEAD",
                     keep,
                 );
+            }
+            ("GET" | "HEAD", "/api/settings") => {
+                mark_watching(&shared);
+                let body = admin_settings_json(&shared);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    body.as_bytes(),
+                    method == "HEAD",
+                    keep,
+                );
+            }
+            ("GET" | "HEAD", "/api/interfaces") => {
+                let body = serde_json::to_vec(&json!({ "interfaces": iface::list() }))
+                    .unwrap_or_else(|_| b"{}".to_vec());
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &body,
+                    method == "HEAD",
+                    keep,
+                );
+            }
+            ("POST", "/api/settings") => {
+                let out = apply_settings(&shared, &body);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &out,
+                    false,
+                    keep,
+                );
+            }
+            ("POST", "/api/keys") => {
+                let out = add_key(&shared, &body);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &out,
+                    false,
+                    keep,
+                );
+            }
+            ("POST", "/api/keys/delete") => {
+                let out = delete_key(&shared, &body);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &out,
+                    false,
+                    keep,
+                );
+            }
+            ("POST", "/api/keys/expiry") => {
+                let out = set_key_expiry(&shared, &body);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &out,
+                    false,
+                    keep,
+                );
+            }
+            ("POST", "/api/update") => {
+                let v = serde_json::from_slice::<serde_json::Value>(&body)
+                    .unwrap_or(serde_json::Value::Null);
+                let force = v.get("force").and_then(|f| f.as_bool()).unwrap_or(false);
+                let check = v.get("check").and_then(|f| f.as_bool()).unwrap_or(false);
+                let (payload, restart) = run_update(check, force);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &payload,
+                    false,
+                    false,
+                );
+                let _ = stream.flush();
+                if restart {
+                    restart_self();
+                }
+            }
+            ("POST", "/api/restart") => {
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    b"{\"ok\":true,\"restarting\":true}",
+                    false,
+                    false,
+                );
+                let _ = stream.flush();
+                restart_self();
             }
             _ => {
                 respond(
@@ -1193,6 +1424,368 @@ fn respond(
     let _ = stream.flush();
 }
 
+/// Largest request body accepted (settings/keys JSON is tiny).
+const MAX_BODY: usize = 64 * 1024;
+
+/// First value of a header, matched case-insensitively.
+fn header_value<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+    for line in head.lines().skip(1) {
+        if let Some((k, v)) = line.split_once(':')
+            && k.trim().eq_ignore_ascii_case(name)
+        {
+            return Some(v.trim());
+        }
+    }
+    None
+}
+
+/// Reads a `Content-Length`-delimited request body, drawing first on bytes that
+/// followed the head and then on the socket. Leftover bytes beyond the body are
+/// kept in `rest` so pipelined requests are not lost.
+fn read_body(head: &str, rest: &mut Vec<u8>, stream: &mut TcpStream) -> Result<Vec<u8>, ()> {
+    let len = header_value(head, "content-length")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    if len > MAX_BODY {
+        return Err(());
+    }
+    let mut body = Vec::with_capacity(len.clamp(64, 8192));
+    let take = rest.len().min(len);
+    body.extend_from_slice(&rest[..take]);
+    rest.drain(..take);
+    while body.len() < len {
+        let mut chunk = [0u8; 2048];
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let need = len - body.len();
+                let take = n.min(need);
+                body.extend_from_slice(&chunk[..take]);
+                if take < n {
+                    rest.extend_from_slice(&chunk[take..]);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    Ok(body)
+}
+
+/// Restarts the daemon after a settings/update change. Under systemd the unit
+/// uses `Restart=always`, so exiting is enough (and preserves the unit's
+/// sandbox); elsewhere a fresh copy is spawned before exiting.
+fn restart_self() -> ! {
+    let under_systemd =
+        std::env::var_os("INVOCATION_ID").is_some() || Path::new("/run/systemd/system").exists();
+    if !under_systemd && let Ok(exe) = std::env::current_exe() {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let _ = Command::new(exe).args(args).spawn();
+    }
+    std::process::exit(0);
+}
+
+/// JSON error envelope used by every admin endpoint.
+fn err_json(msg: &str) -> Vec<u8> {
+    json!({ "ok": false, "error": msg })
+        .to_string()
+        .into_bytes()
+}
+
+/// Human summary of an expiry timestamp.
+fn expires_label(expires: u64, now: u64) -> String {
+    if expires == 0 {
+        return "never".to_string();
+    }
+    if expires <= now {
+        return "expired".to_string();
+    }
+    let days = (expires - now) / 86_400;
+    if days >= 1 {
+        format!("in {days} day(s)")
+    } else {
+        "in <24h".to_string()
+    }
+}
+
+/// One key as shown in the settings page (the token itself is never sent back).
+fn key_json(k: &keys::Key, idx: Option<usize>, now: u64) -> serde_json::Value {
+    json!({
+        "label": k.label.clone(),
+        "masked": k.masked(),
+        "expires": k.expires,
+        "expires_label": expires_label(k.expires, now),
+        "expired": k.expired(now),
+        "env": idx.is_none(),
+        "idx": idx,
+    })
+}
+
+/// `GET /api/settings` payload: current effective settings, keys and interfaces.
+fn admin_settings_json(shared: &Shared) -> String {
+    let now = keys::now_unix();
+    let mut keys: Vec<serde_json::Value> = shared
+        .store
+        .env_list()
+        .iter()
+        .map(|k| key_json(k, None, now))
+        .collect();
+    for (i, k) in shared.store.file_list().iter().enumerate() {
+        keys.push(key_json(k, Some(i), now));
+    }
+    json!({
+        "version": update::current_version(),
+        "bind": shared.bind.clone(),
+        "port": shared.port,
+        "interface": shared.interface.clone(),
+        "interval_secs": shared.interval_secs(),
+        "max_procs": shared.max_procs(),
+        "kiosk": shared.is_kiosk(),
+        "keys": keys,
+        "interfaces": iface::list(),
+    })
+    .to_string()
+}
+
+/// `POST /api/settings`: applies live values immediately, persists everything,
+/// and flags whether a restart is needed for the bind/interface/port changes.
+fn apply_settings(shared: &Shared, body: &[u8]) -> Vec<u8> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return err_json("bad json");
+    };
+    let mut applied: Vec<String> = Vec::new();
+    let mut needs_restart = false;
+    let mut s = shared.settings.lock().unwrap_or_else(|p| p.into_inner());
+
+    if let Some(iv) = v.get("interval_secs").and_then(|x| x.as_f64()) {
+        let iv = iv.clamp(0.2, 3600.0);
+        shared
+            .interval_ms
+            .store((iv * 1000.0).round() as u64, Ordering::Relaxed);
+        s.interval_secs = Some(iv);
+        applied.push(format!("interval={iv}s"));
+    }
+    if let Some(mp) = v.get("max_procs").and_then(|x| x.as_u64()) {
+        let mp = (mp as usize).clamp(1, 5000);
+        shared.max_procs.store(mp, Ordering::Relaxed);
+        s.max_procs = Some(mp);
+        applied.push(format!("max_procs={mp}"));
+    }
+    if let Some(k) = v.get("kiosk").and_then(|x| x.as_bool()) {
+        shared.kiosk.store(k, Ordering::Relaxed);
+        let html = render_dashboard_parts(shared.interval_secs(), k);
+        *shared.html.lock().unwrap_or_else(|p| p.into_inner()) = Arc::from(html);
+        s.kiosk = Some(k);
+        applied.push(format!("kiosk={k}"));
+    }
+    if let Some(b) = v.get("bind").and_then(|x| x.as_str())
+        && !b.is_empty()
+    {
+        s.bind = Some(b.to_string());
+        applied.push(format!("bind={b}"));
+        needs_restart = true;
+    }
+    if let Some(i) = v.get("interface").and_then(|x| x.as_str()) {
+        s.interface = if i.is_empty() {
+            None
+        } else {
+            Some(i.to_string())
+        };
+        applied.push(format!("interface={i}"));
+        needs_restart = true;
+    }
+    if let Some(p) = v.get("port").and_then(|x| x.as_u64())
+        && (1..=65535).contains(&p)
+    {
+        s.port = Some(p as u16);
+        applied.push(format!("port={p}"));
+        needs_restart = true;
+    }
+
+    let saved = match &shared.settings_path {
+        Some(path) => s.save(path).map(|_| ()).map_err(|e| e.to_string()),
+        None => Ok(()),
+    };
+    drop(s);
+
+    json!({
+        "ok": saved.is_ok(),
+        "applied": applied,
+        "needs_restart": needs_restart,
+        "error": saved.err(),
+    })
+    .to_string()
+    .into_bytes()
+}
+
+/// `POST /api/keys`: adds a key (generating a token when none is supplied) and
+/// optionally drops every other file key in the same step.
+fn add_key(shared: &Shared, body: &[u8]) -> Vec<u8> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return err_json("bad json");
+    };
+    let label = v
+        .get("label")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let token = v
+        .get("token")
+        .and_then(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(keys::generate_token);
+    let now = keys::now_unix();
+    let expires = match v.get("expires") {
+        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => {
+            match keys::parse_expiry(s, now) {
+                Ok(e) => e,
+                Err(e) => return err_json(&e),
+            }
+        }
+        _ => 0,
+    };
+    let replace = v.get("replace").and_then(|x| x.as_bool()).unwrap_or(false);
+    let result = shared
+        .store
+        .add(keys::Key {
+            token: token.clone(),
+            label: label.clone(),
+            expires,
+        })
+        .and_then(|()| {
+            if replace {
+                shared.store.keep_only(&token)
+            } else {
+                Ok(())
+            }
+        });
+    match result {
+        Ok(()) => json!({
+            "ok": true,
+            "token": token,
+            "label": label,
+            "expires": expires,
+            "expires_label": expires_label(expires, now),
+            "replaced": replace,
+        })
+        .to_string()
+        .into_bytes(),
+        Err(e) => err_json(&e.to_string()),
+    }
+}
+
+/// `POST /api/keys/delete`: removes a file key by its index or by token/label.
+fn delete_key(shared: &Shared, body: &[u8]) -> Vec<u8> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return err_json("bad json");
+    };
+    let result = if let Some(idx) = v.get("idx").and_then(|x| x.as_u64()) {
+        shared.store.remove_index(idx as usize)
+    } else if let Some(ident) = v.get("ident").and_then(|x| x.as_str()) {
+        let ident = ident.trim();
+        if ident.is_empty() {
+            return err_json("idx or ident required");
+        }
+        shared.store.remove(ident)
+    } else {
+        return err_json("idx or ident required");
+    };
+    match result {
+        Ok(true) => json!({ "ok": true }).to_string().into_bytes(),
+        Ok(false) => err_json("no matching file key (environment keys are read-only)"),
+        Err(e) => err_json(&e.to_string()),
+    }
+}
+
+/// `POST /api/keys/expiry`: sets (or clears, with `never`/`0`) a file key's expiry.
+fn set_key_expiry(shared: &Shared, body: &[u8]) -> Vec<u8> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return err_json("bad json");
+    };
+    let now = keys::now_unix();
+    let expires = match v.get("expires") {
+        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
+        Some(serde_json::Value::String(s)) => match keys::parse_expiry(s, now) {
+            Ok(e) => e,
+            Err(e) => return err_json(&e),
+        },
+        _ => return err_json("expires required"),
+    };
+    let result = if let Some(idx) = v.get("idx").and_then(|x| x.as_u64()) {
+        shared.store.set_expiry_index(idx as usize, expires)
+    } else if let Some(ident) = v.get("ident").and_then(|x| x.as_str()) {
+        let ident = ident.trim();
+        if ident.is_empty() {
+            return err_json("idx or ident required");
+        }
+        shared.store.set_expiry(ident, expires)
+    } else {
+        return err_json("idx or ident required");
+    };
+    match result {
+        Ok(true) => json!({
+            "ok": true,
+            "expires": expires,
+            "expires_label": expires_label(expires, now),
+        })
+        .to_string()
+        .into_bytes(),
+        Ok(false) => err_json("no matching file key (environment keys are read-only)"),
+        Err(e) => err_json(&e.to_string()),
+    }
+}
+
+/// `POST /api/update`: runs the self-updater. Returns `(json, needs_restart)`.
+/// With `check` it only reports whether a newer release exists.
+fn run_update(check: bool, force: bool) -> (Vec<u8>, bool) {
+    if check {
+        return match update::check() {
+            Ok(update::Outcome::Available { current, latest }) => (
+                json!({ "ok": true, "available": true, "current": current, "latest": latest })
+                    .to_string()
+                    .into_bytes(),
+                false,
+            ),
+            Ok(update::Outcome::UpToDate { version }) => (
+                json!({ "ok": true, "available": false, "version": version })
+                    .to_string()
+                    .into_bytes(),
+                false,
+            ),
+            Ok(_) => (
+                json!({ "ok": true, "available": false })
+                    .to_string()
+                    .into_bytes(),
+                false,
+            ),
+            Err(e) => (err_json(&e), false),
+        };
+    }
+    match update::perform(force) {
+        Ok(update::Outcome::Updated { from, to }) => (
+            json!({ "ok": true, "updated": true, "from": from, "to": to })
+                .to_string()
+                .into_bytes(),
+            true,
+        ),
+        Ok(update::Outcome::UpToDate { version }) => (
+            json!({ "ok": true, "updated": false, "version": version })
+                .to_string()
+                .into_bytes(),
+            false,
+        ),
+        Ok(update::Outcome::Available { current, latest }) => (
+            json!({ "ok": true, "updated": false, "current": current, "latest": latest })
+                .to_string()
+                .into_bytes(),
+            false,
+        ),
+        Err(e) => (err_json(&e), false),
+    }
+}
+
 /// Byte offset of the HTTP header terminator (CRLFCRLF), if present.
 fn find_terminator(b: &[u8]) -> Option<usize> {
     b.windows(4).position(|w| w == b"\r\n\r\n")
@@ -1228,6 +1821,7 @@ fn wants_keep_alive(head: &str) -> bool {
 }
 
 /// Constant-time byte comparison (resists timing attacks on the token).
+#[cfg(test)]
 fn ct_eq(a: &str, b: &str) -> bool {
     let ab = a.as_bytes();
     let bb = b.as_bytes();
@@ -1365,6 +1959,7 @@ mod tests {
             max_procs: 100,
             token: None,
             kiosk: false,
+            ..ServeConfig::default()
         };
         let html = render_dashboard(&plain);
         assert!(html.contains("var POLL = 5000;"));
@@ -1715,6 +2310,7 @@ mod tests {
             max_procs: 20,
             token: auth.map(str::to_string),
             kiosk: false,
+            ..ServeConfig::default()
         };
         let server = Arc::new(
             Server::start_with_timeouts(&cfg, test_timeouts()).expect("start test server"),
@@ -2267,7 +2863,7 @@ mod tests {
 
         let cases: &[(&str, u16)] = &[
             ("GARBAGE\r\n\r\n", 405),
-            ("POST /api/snapshot HTTP/1.1\r\n\r\n", 405),
+            ("POST /api/snapshot HTTP/1.1\r\n\r\n", 404),
             ("GET http://evil.example/ HTTP/1.1\r\n\r\n", 400),
             ("GET /../etc/passwd HTTP/1.1\r\n\r\n", 400),
             ("GET /%2e%2e/etc/passwd HTTP/1.1\r\n\r\n", 400),

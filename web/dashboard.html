@@ -254,6 +254,53 @@ tr.alert-red td { color:#f85149; }
   .controls { position:static; text-align:right; margin-top:4px; }
 }
 
+/* ---- settings panel (modal) ---- */
+#settingsPanel {
+  display:none; position:fixed; top:0; left:0; right:0; bottom:0;
+  background:rgba(0,0,0,.6); z-index:200; overflow:auto;
+}
+#settingsPanel.open { display:block; }
+.sp-card {
+  max-width:640px; margin:40px auto; background:#161b22;
+  border:1px solid #30363d; border-radius:8px; padding-bottom:12px;
+}
+.sp-head { border-bottom:1px solid #21262d; padding:10px 14px; position:relative; }
+.sp-head h2 { font-size:15px; color:#e6edf3; }
+.sp-head button {
+  position:absolute; top:8px; right:10px; background:#21262d; color:#c9d1d9;
+  border:1px solid #30363d; border-radius:4px; padding:2px 8px; cursor:pointer; font-size:13px;
+}
+.sp-sec { padding:10px 14px; border-bottom:1px solid #21262d; }
+.sp-sec h3 {
+  font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:#8b949e; margin:0 0 8px;
+}
+.sp-sec label { display:block; margin:6px 0; color:#c9d1d9; font-size:12px; }
+.sp-sec input[type=text], .sp-sec input[type=number], .sp-sec input[type=date], .sp-sec select {
+  background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:4px;
+  padding:4px 8px; font-size:12px; min-width:170px;
+}
+.sp-sec button {
+  background:#238636; color:#fff; border:1px solid #2ea043; border-radius:4px;
+  padding:5px 12px; font-size:12px; cursor:pointer; margin-top:6px;
+}
+.sp-sec button.sec { background:#21262d; color:#c9d1d9; border-color:#30363d; }
+.sp-sec button:hover { filter:brightness(1.12); }
+.sp-note { color:#8b949e; font-size:11px; margin-top:4px; }
+.sp-msg { font-size:12px; margin-top:6px; }
+.sp-msg.ok { color:#3fb950; }
+.sp-msg.err { color:#f85149; }
+table.sp-keys { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+table.sp-keys th { color:#8b949e; text-align:left; border-bottom:1px solid #30363d; padding:4px 6px; }
+table.sp-keys td { border-bottom:1px solid #21262d; padding:4px 6px; }
+.sp-token {
+  display:block; margin-top:6px; padding:6px 8px; background:#0d1117;
+  border:1px solid #2ea043; border-radius:4px; color:#3fb950;
+  font-family:Consolas, Menlo, monospace; font-size:12px; word-break:break-all;
+}
+.sp-row { margin:6px 0; }
+.sp-inline { display:inline-block; margin-right:10px; }
+body.kiosk #settingsPanel { cursor:auto; }
+
 /* ---- legacy retro (Windows-95 look) theme ----
    Pure CSS class on <html>; modern UI stays the default. Uses only old-browser
    safe features: class selectors, outset/inset borders, no flexbox/grid. */
@@ -322,6 +369,25 @@ html.legacy #kioskExit {
   border-color:#ffffff #808080 #808080 #ffffff; border-radius:0; font-family:inherit;
 }
 html.legacy #kioskExit:hover { background:#e0e0e0; }
+html.legacy .sp-card {
+  background:#c0c0c0; border-radius:0;
+  border:2px solid; border-color:#ffffff #808080 #808080 #ffffff;
+}
+html.legacy .sp-head { border-bottom:1px solid #808080; }
+html.legacy .sp-head h2 { color:#000080; }
+html.legacy .sp-head button { background:#c0c0c0; color:#000; border:2px outset #ffffff; border-radius:0; }
+html.legacy .sp-sec { border-bottom:1px solid #808080; }
+html.legacy .sp-sec h3 { color:#404040; }
+html.legacy .sp-sec input, html.legacy .sp-sec select {
+  background:#ffffff; color:#000; border:2px inset #c0c0c0; border-radius:0;
+}
+html.legacy .sp-sec button { background:#c0c0c0; color:#000; border:2px outset #ffffff; border-radius:0; }
+html.legacy .sp-sec button.sec { background:#c0c0c0; color:#000; }
+html.legacy table.sp-keys th { color:#000; border-bottom:1px solid #808080; }
+html.legacy .sp-note { color:#404040; }
+html.legacy .sp-msg.ok { color:#008000; }
+html.legacy .sp-msg.err { color:#c00000; }
+html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000080; border-radius:0; }
 </style>
 </head>
 <body class="dashboard">
@@ -349,10 +415,81 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     <button id="fsBtn" title="full screen">fullscreen</button>
     <button id="kioskBtn" title="kiosk mode">kiosk</button>
     <button id="themeBtn" title="switch to the retro legacy theme">legacy</button>
+    <button id="settingsBtn" title="settings (keys, update, network)">&#9881;</button>
   </div>
 </header>
 <button id="kioskExit" title="leave kiosk and full-screen mode">&#10006;&nbsp;exit</button>
 <div id="offline">offline &mdash; reconnecting&hellip;</div>
+
+<div id="settingsPanel">
+  <div class="sp-card">
+    <div class="sp-head">
+      <h2>Settings</h2>
+      <button id="spClose" title="close">&#10006;</button>
+    </div>
+
+    <div class="sp-sec">
+      <h3>Version &amp; update</h3>
+      <div>installed: <b class="mono" id="spVersion">&mdash;</b></div>
+      <button id="spCheck" class="sec">check for updates</button>
+      <button id="spUpdate" class="sec">update now</button>
+      <div class="sp-msg" id="spUpdateMsg"></div>
+      <div class="sp-note">Updates swap the binary in place and keep your token and settings.</div>
+    </div>
+
+    <div class="sp-sec">
+      <h3>Dashboard &mdash; applies live</h3>
+      <label>refresh interval
+        <input type="number" id="spInterval" min="0.2" max="3600" step="0.1"> seconds</label>
+      <label>max processes
+        <input type="number" id="spMaxProcs" min="1" max="5000"></label>
+      <label><input type="checkbox" id="spKiosk"> start new viewers in kiosk mode</label>
+      <button id="spSaveLive">save</button>
+      <span class="sp-msg" id="spLiveMsg"></span>
+    </div>
+
+    <div class="sp-sec">
+      <h3>Network binding <span class="sp-note">(restart required)</span></h3>
+      <label>bind address <input type="text" id="spBind" placeholder="0.0.0.0"></label>
+      <label>interface <select id="spIface"></select></label>
+      <label>port <input type="number" id="spPort" min="1" max="65535"></label>
+      <button id="spSaveNet">save</button>
+      <button id="spRestart" class="sec">restart server</button>
+      <span class="sp-msg" id="spNetMsg"></span>
+      <div class="sp-note">Pick an interface to follow its current IPv4 automatically (e.g. after a reboot).</div>
+    </div>
+
+    <div class="sp-sec">
+      <h3>Access keys</h3>
+      <table class="sp-keys">
+        <thead><tr><th>label</th><th>token</th><th>source</th><th>expires</th><th></th></tr></thead>
+        <tbody id="spKeyBody"></tbody>
+      </table>
+      <div class="sp-row">
+        <input type="text" id="spKeyLabel" placeholder="label">
+        <input type="text" id="spKeyToken" placeholder="token (blank = generate)">
+      </div>
+      <div class="sp-row">
+        expiry
+        <select id="spKeyExpiry">
+          <option value="never">never</option>
+          <option value="7d">7 days</option>
+          <option value="30d">30 days</option>
+          <option value="90d">90 days</option>
+          <option value="6mo">6 months</option>
+          <option value="1y">1 year</option>
+          <option value="custom">custom date&hellip;</option>
+        </select>
+        <input type="date" id="spKeyDate" style="display:none;">
+        <label class="sp-inline"><input type="checkbox" id="spKeyReplace"> replace all others</label>
+      </div>
+      <button id="spKeyAdd">add key</button>
+      <div class="sp-token" id="spNewToken" style="display:none;"></div>
+      <div class="sp-msg" id="spKeyMsg"></div>
+      <div class="sp-note">Keys from environment variables (SYSVIEW_TOKEN / SYSVIEW_KEYS) are read-only here.</div>
+    </div>
+  </div>
+</div>
 
 <div class="wrap">
   <div class="cards" id="cards"><div class="cardrow">
@@ -403,7 +540,24 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     <div class="card" id="cardLoad">
       <div class="label">Load</div>
       <div class="value" id="loadVal"><small>n/a</small></div>
+      <svg class="donut" viewBox="0 0 120 120" width="110" height="110">
+        <circle class="donut-bg" cx="60" cy="60" r="50"/>
+        <circle class="donut-fg" id="gaugeLoad" cx="60" cy="60" r="50"/>
+        <text class="mono donut-center" x="60" y="64">0%</text>
+      </svg>
       <div class="rowex"><span class="k">uptime</span><span id="upVal" class="mono"></span></div>
+    </div>
+
+    <div class="card" id="cardTemp" style="display:none;">
+      <div class="label">CPU temp</div>
+      <div class="value"><span id="tempVal">0.0</span><small>&deg;C</small></div>
+      <svg class="donut" viewBox="0 0 120 120" width="110" height="110">
+        <circle class="donut-bg" cx="60" cy="60" r="50"/>
+        <circle class="donut-fg" id="gaugeTemp" cx="60" cy="60" r="50"/>
+        <text class="mono donut-center" x="60" y="64">&mdash;</text>
+      </svg>
+      <div class="rowex dim" id="tempLabel" style="font-size:11px;"></div>
+      <div class="spark"><canvas id="sparkTemp" width="220" height="44"></canvas></div>
     </div>
 
   </div></div>
@@ -501,7 +655,7 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
   var lastTs = 0;   /* epoch seconds of the latest snapshot */
   var PREF_MARKS = "sysview.marks";
 
-  var hist = { cpu: [], mem: [], rx: [], tx: [], swap: [] };
+  var hist = { cpu: [], mem: [], rx: [], tx: [], swap: [], temp: [] };
 
   /* last per-core ring + core list from the server, kept so the strip can be
      re-fitted and re-drawn crisp on window resize between polls */
@@ -509,8 +663,8 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
   var coreHistData = null;
 
   /* smooth gauge targets (lerped toward on each animation frame) */
-  var curVal = { cpu: 0, mem: 0, swap: 0 };
-  var tgtVal = { cpu: 0, mem: 0, swap: 0 };
+  var curVal = { cpu: 0, mem: 0, swap: 0, temp: 0, load: 0 };
+  var tgtVal = { cpu: 0, mem: 0, swap: 0, temp: 0, load: 0 };
 
   var sortKey = "cpu";
   var sortDir = -1;
@@ -574,6 +728,25 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     if (v >= 90) return "#f85149";
     if (v >= 70) return "#d29922";
     return "#3fb950";
+  }
+
+  /* Picks the most CPU-representative temperature sensor: a sensor whose label
+     names the CPU (cpu/package/core/tctl/tdie/k10temp) wins; otherwise the
+     hottest reading. Returns null when there is no usable temperature. */
+  function pickCpuTemp(temps) {
+    if (!temps || !temps.length) return null;
+    var i, best = null, bestV = -1;
+    for (i = 0; i < temps.length; i++) {
+      var t = temps[i];
+      if (t.temperature_c == null) continue;
+      var l = String(t.label || "").toLowerCase();
+      if (l.indexOf("cpu") >= 0 || l.indexOf("package") >= 0 || l.indexOf("core") >= 0 ||
+          l.indexOf("tctl") >= 0 || l.indexOf("tdie") >= 0 || l.indexOf("k10temp") >= 0) {
+        return t;
+      }
+      if (t.temperature_c > bestV) { bestV = t.temperature_c; best = t; }
+    }
+    return best;
   }
 
   /* ---------------- window stats, forecast, health ---------------- */
@@ -1004,12 +1177,16 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     fitCoreHists();
     drawCoreHist(cores, d.history);
     $("upVal").textContent = uptimeStr(s.uptime_secs);
+    var coresLog = c.logical_cores || 1;
     if (s.load_average) {
       $("loadVal").innerHTML = "<span style='font-size:15px;'>" +
         s.load_average.one.toFixed(2) + " / " + s.load_average.five.toFixed(2) +
         " / " + s.load_average.fifteen.toFixed(2) + "</span>";
+      /* gauge = 1-minute load as a fraction of the core count */
+      gaugeTarget("load", Math.min(100, (s.load_average.one / coresLog) * 100));
     } else {
       $("loadVal").innerHTML = "<small>n/a</small>";
+      gaugeTarget("load", 0);
     }
     /* header load/uptime line with a tiny load-average spark (server sends
        load_average; on Windows it is null, so only uptime is shown) */
@@ -1142,6 +1319,23 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
 
     /* sensors */
     var temps = (d.sensors && d.sensors.temperatures) ? d.sensors.temperatures : [];
+
+    /* CPU temperature card: pick the CPU sensor (or the hottest) and show it
+       as its own gauge + a client-local trend spark. */
+    var ct = pickCpuTemp(temps);
+    var cardT = $("cardTemp");
+    if (ct && ct.temperature_c != null) {
+      cardT.style.display = "";
+      $("tempVal").textContent = ct.temperature_c.toFixed(1);
+      $("tempLabel").textContent = ct.label || "";
+      gaugeTarget("temp", Math.min(100, ct.temperature_c));
+      hist.temp.push(ct.temperature_c);
+      if (hist.temp.length > MAXHIST) hist.temp.shift();
+      drawSpark("sparkTemp", hist.temp, "#f0883e", true);
+    } else {
+      cardT.style.display = "none";
+    }
+
     if (temps.length > 0) {
       $("sensorPanel").style.display = "";
       var sh = "";
@@ -1301,8 +1495,8 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
      needle still glides but the number settles and stays readable for the
      rest of a 1s or 2s poll. */
   var ANIM_MS = 450;
-  var animStart = { cpu: 0, mem: 0, swap: 0 };
-  var animFrom = { cpu: 0, mem: 0, swap: 0 };
+  var animStart = { cpu: 0, mem: 0, swap: 0, temp: 0, load: 0 };
+  var animFrom = { cpu: 0, mem: 0, swap: 0, temp: 0, load: 0 };
   function gaugeTarget(k, v) {
     if (tgtVal[k] === v) return;
     tgtVal[k] = v;
@@ -1311,7 +1505,7 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
   }
   function animate() {
     var now = Date.now();
-    var keys = ["cpu", "mem", "swap"];
+    var keys = ["cpu", "mem", "swap", "temp", "load"];
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
       if (!animStart[k] || now >= animStart[k] + ANIM_MS) {
@@ -1332,6 +1526,10 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     setGauge("gaugeSwap", curVal.swap);
     setGaugeText("gaugeSwap", Math.round(curVal.swap) + "%");
     $("swapVal").textContent = curVal.swap.toFixed(0);
+    setGauge("gaugeTemp", curVal.temp);
+    setGaugeText("gaugeTemp", Math.round(curVal.temp) + "\u00b0");
+    setGauge("gaugeLoad", curVal.load);
+    setGaugeText("gaugeLoad", Math.round(curVal.load) + "%");
   }
 
   function redrawCharts() {
@@ -1340,6 +1538,7 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     drawSpark("sparkSwap", hist.swap, "#d29922", true);
     drawSpark("sparkRx", hist.rx, "#3fb950", true);
     drawSpark("sparkTx", hist.tx, "#f0883e", true);
+    drawSpark("sparkTemp", hist.temp, "#f0883e", true);
     drawChart(hist.cpu);
   }
 
@@ -1486,6 +1685,188 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
   }
 
   /* ---------------- init ---------------- */
+  /* ---------------- settings panel ---------------- */
+  /* Admin calls go to same-origin /api/* endpoints with the page's ?token=
+     forwarded, so a protected server keeps working. Old-browser safe: XHR +
+     JSON only, no fetch/Promise. */
+  function apiToken() {
+    var m = /[?&]token=([^&]+)/.exec(location.search);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+  function api(method, path, body, cb) {
+    var x = new XMLHttpRequest();
+    var tok = apiToken();
+    var url = path + (tok ? ((path.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(tok)) : "");
+    x.open(method, url, true);
+    x.setRequestHeader("Content-Type", "application/json");
+    x.onreadystatechange = function () {
+      if (x.readyState !== 4) return;
+      var j = null;
+      try { j = JSON.parse(x.responseText); } catch (e) {}
+      cb(x.status, j);
+    };
+    x.onerror = function () { cb(0, null); };
+    x.send(body ? JSON.stringify(body) : null);
+  }
+  function spMsg(id, text, ok) {
+    var el = $(id);
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "sp-msg" + (ok === true ? " ok" : (ok === false ? " err" : ""));
+  }
+  function openSettings() {
+    $("settingsPanel").className = "open";
+    loadSettings();
+  }
+  function closeSettings() { $("settingsPanel").className = ""; }
+
+  function loadSettings() {
+    api("GET", "api/settings", null, function (code, j) {
+      if (code !== 200 || !j) { spMsg("spLiveMsg", "could not load settings", false); return; }
+      $("spVersion").textContent = "v" + (j.version || "?");
+      $("spBind").value = j.bind || "";
+      $("spPort").value = j.port || "";
+      $("spInterval").value = j.interval_secs || "";
+      $("spMaxProcs").value = j.max_procs || "";
+      $("spKiosk").checked = !!j.kiosk;
+      var sel = $("spIface");
+      sel.innerHTML = "<option value=''>(none \u2014 use the bind address)</option>";
+      var ifs = j.interfaces || [];
+      for (var i = 0; i < ifs.length; i++) {
+        var it = ifs[i];
+        var ips = (it.ips && it.ips.length) ? " \u2013 " + it.ips.join(", ") : "";
+        var o = document.createElement("option");
+        o.value = it.name;
+        o.textContent = it.name + (it.wifi ? " [wifi?]" : "") + ips;
+        if (j.interface === it.name) o.selected = true;
+        sel.appendChild(o);
+      }
+      renderKeys(j.keys || []);
+    });
+  }
+
+  function renderKeys(keys) {
+    var h = "", i;
+    for (i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var expTxt = k.expired
+        ? "<span style='color:#f85149;'>expired</span>"
+        : esc(k.expires_label || "never");
+      h += "<tr><td>" + esc(k.label || "-") + "</td><td class='mono'>" + esc(k.masked) + "</td>"
+         + "<td>" + (k.env ? "env" : "file") + "</td><td>" + expTxt + "</td><td>";
+      if (!k.env) {
+        h += "<select class='sp-exp' data-idx='" + k.idx + "'>"
+           + "<option value=''>expiry\u2026</option>"
+           + "<option value='never'>never</option><option value='7d'>7d</option>"
+           + "<option value='30d'>30d</option><option value='90d'>90d</option>"
+           + "<option value='6mo'>6mo</option><option value='1y'>1y</option></select> "
+           + "<button class='sec sp-del' data-idx='" + k.idx + "'>&#10006;</button>";
+      }
+      h += "</td></tr>";
+    }
+    $("spKeyBody").innerHTML = h || "<tr><td colspan='5' class='sp-note'>no keys configured</td></tr>";
+    var dels = $("spKeyBody").getElementsByTagName("button");
+    for (i = 0; i < dels.length; i++) {
+      if (dels[i].className.indexOf("sp-del") >= 0) {
+        dels[i].onclick = function () { delKey(this.getAttribute("data-idx")); };
+      }
+    }
+    var exps = $("spKeyBody").getElementsByTagName("select");
+    for (i = 0; i < exps.length; i++) {
+      if (exps[i].className.indexOf("sp-exp") >= 0) {
+        exps[i].onchange = function () {
+          if (this.value) setKeyExpiry(this.getAttribute("data-idx"), this.value);
+        };
+      }
+    }
+  }
+
+  function delKey(idx) {
+    if (!confirm("Delete this key?")) return;
+    api("POST", "api/keys/delete", { idx: parseInt(idx, 10) }, function (code, j) {
+      spMsg("spKeyMsg", (j && j.ok) ? "key deleted" : ((j && j.error) || "delete failed"), j && j.ok);
+      if (j && j.ok) loadSettings();
+    });
+  }
+  function setKeyExpiry(idx, spec) {
+    api("POST", "api/keys/expiry", { idx: parseInt(idx, 10), expires: spec }, function (code, j) {
+      spMsg("spKeyMsg", (j && j.ok) ? "expiry updated" : ((j && j.error) || "update failed"), j && j.ok);
+      if (j && j.ok) loadSettings();
+    });
+  }
+  function addKey() {
+    var expSel = $("spKeyExpiry").value;
+    var expires = expSel;
+    if (expSel === "custom") {
+      expires = $("spKeyDate").value;
+      if (!expires) { spMsg("spKeyMsg", "pick a date", false); return; }
+    }
+    var body = {
+      label: $("spKeyLabel").value,
+      token: $("spKeyToken").value,
+      expires: expires,
+      replace: $("spKeyReplace").checked
+    };
+    api("POST", "api/keys", body, function (code, j) {
+      if (j && j.ok) {
+        spMsg("spKeyMsg", "added key", true);
+        var nt = $("spNewToken");
+        nt.style.display = "";
+        nt.textContent = j.token;
+        $("spKeyLabel").value = "";
+        $("spKeyToken").value = "";
+        $("spKeyReplace").checked = false;
+        loadSettings();
+      } else {
+        spMsg("spKeyMsg", (j && j.error) || "failed", false);
+      }
+    });
+  }
+
+  function saveLive() {
+    var body = {
+      interval_secs: parseFloat($("spInterval").value),
+      max_procs: parseInt($("spMaxProcs").value, 10),
+      kiosk: $("spKiosk").checked
+    };
+    api("POST", "api/settings", body, function (code, j) {
+      if (j && j.ok) spMsg("spLiveMsg", "saved: " + ((j.applied || []).join(", ") || "no changes"), true);
+      else spMsg("spLiveMsg", (j && j.error) || "failed", false);
+    });
+  }
+  function saveNet() {
+    var body = {
+      bind: $("spBind").value,
+      interface: $("spIface").value,
+      port: parseInt($("spPort").value, 10)
+    };
+    api("POST", "api/settings", body, function (code, j) {
+      if (j && j.ok) spMsg("spNetMsg", j.needs_restart ? "saved \u2014 restart required" : "saved", true);
+      else spMsg("spNetMsg", (j && j.error) || "failed", false);
+    });
+  }
+  function restartServer() {
+    if (!confirm("Restart the sysview server now?")) return;
+    api("POST", "api/restart", {}, function () { spMsg("spNetMsg", "restarting\u2026", true); });
+  }
+  function checkUpdate() {
+    spMsg("spUpdateMsg", "checking\u2026");
+    api("POST", "api/update", { check: true }, function (code, j) {
+      if (j && j.ok && j.available) spMsg("spUpdateMsg", "update available: " + j.latest, true);
+      else if (j && j.ok) spMsg("spUpdateMsg", "up to date", true);
+      else spMsg("spUpdateMsg", (j && j.error) || "check failed", false);
+    });
+  }
+  function doUpdate() {
+    if (!confirm("Download and install the latest release now?")) return;
+    spMsg("spUpdateMsg", "downloading\u2026");
+    api("POST", "api/update", { force: false }, function (code, j) {
+      if (j && j.ok && j.updated) spMsg("spUpdateMsg", "updated " + j.from + " \u2192 " + j.to + "; restarting\u2026", true);
+      else if (j && j.ok) spMsg("spUpdateMsg", "already up to date", true);
+      else spMsg("spUpdateMsg", (j && j.error) || "update failed", false);
+    });
+  }
+
   function init() {
     if (inited) return;
     inited = true;
@@ -1544,6 +1925,20 @@ html.legacy #kioskExit:hover { background:#e0e0e0; }
     $("kioskExit").addEventListener("click", exitKiosk);
     $("pauseBtn").addEventListener("click", togglePause);
     $("dlBtn").addEventListener("click", downloadSnapshot);
+    if ($("settingsBtn")) $("settingsBtn").addEventListener("click", openSettings);
+    if ($("spClose")) $("spClose").addEventListener("click", closeSettings);
+    if ($("spSaveLive")) $("spSaveLive").addEventListener("click", saveLive);
+    if ($("spSaveNet")) $("spSaveNet").addEventListener("click", saveNet);
+    if ($("spRestart")) $("spRestart").addEventListener("click", restartServer);
+    if ($("spCheck")) $("spCheck").addEventListener("click", checkUpdate);
+    if ($("spUpdate")) $("spUpdate").addEventListener("click", doUpdate);
+    if ($("spKeyAdd")) $("spKeyAdd").addEventListener("click", addKey);
+    if ($("spKeyExpiry")) $("spKeyExpiry").addEventListener("change", function () {
+      $("spKeyDate").style.display = (this.value === "custom") ? "" : "none";
+    });
+    if ($("settingsPanel")) $("settingsPanel").addEventListener("click", function (e) {
+      if (e.target === this) closeSettings();
+    });
     $("intervalSel").addEventListener("change", function () {
       store.set(PREF_INT, this.value);
       schedule();
