@@ -78,7 +78,7 @@
       "mainEntity": [
         { "@type": "Question", "name": "Does it need a runtime or an installer?", "acceptedAnswer": { "@type": "Answer", "text": "No. It's one self-contained static binary per platform. Download, chmod +x on Unix, run. No Node, no Python, no system packages." } },
         { "@type": "Question", "name": "Is it safe to expose on my LAN?", "acceptedAnswer": { "@type": "Answer", "text": "The dashboard binds loopback by default and only listens on 0.0.0.0 when you ask it to. Set a token and every route returns 401 without it." } },
-        { "@type": "Question", "name": "How much memory does it really use?", "acceptedAnswer": { "@type": "Answer", "text": "Around 2 to 4 MB private RSS at idle on a headless Debian 13 server, and the sampler pauses after 30 seconds with no viewer." } },
+        { "@type": "Question", "name": "How much memory does it really use?", "acceptedAnswer": { "@type": "Answer", "text": "Around 2 MB private RSS at idle on a headless Debian 13 server (about half of v0.2.0), and the sampler pauses after 30 seconds with no viewer." } },
         { "@type": "Question", "name": "Will it come back after a reboot or crash?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The systemd unit is installed enabled with WantedBy=multi-user.target and Restart=always, so it starts after the network is online and revives within seconds of any crash." } },
         { "@type": "Question", "name": "Does it have Prometheus support?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. /metrics on the same port, Prometheus text 0.0.4, token-protected, and decoded from the already-cached snapshot for zero per-poll allocations." } },
         { "@type": "Question", "name": "What about HTTPS?", "acceptedAnswer": { "@type": "Answer", "text": "Put a reverse proxy such as nginx or Caddy in front of it for TLS. The service listens on a single port and speaks plain HTTP." } }
@@ -142,9 +142,9 @@
       </div>
       <p class="sponsor-line">This page is <b>sponsored &amp; developed by</b>
         <a href="https://ndcompany.in" target="_blank" rel="noopener"><b>N&amp;D Co &mdash; Brand &amp; Growth Agency</b></a></p>
-      <div class="counter" role="img" aria-label="System stats: about 3 to 4 MB binary, 2 to 4 MB memory at idle, zero dependencies, three platforms.">
-        <span>BINARY: <b>~3-4 MB</b></span> &nbsp;&nbsp;
-        <span>RAM@IDLE: <b>~2-4 MB</b></span> &nbsp;&nbsp;
+      <div class="counter" role="img" aria-label="System stats: about 2 MB binary, 2 MB memory at idle, zero dependencies, three platforms.">
+        <span>BINARY: <b>~2 MB</b></span> &nbsp;&nbsp;
+        <span>RAM@IDLE: <b>~2 MB</b></span> &nbsp;&nbsp;
         <span>DEPS: <b>0</b></span> &nbsp;&nbsp;
         <span>OS: <b>3</b></span><br>
         <span>VISITORS: 001337 &nbsp;|&nbsp; SINCE 1996 &nbsp;|&nbsp; Y2K&nbsp;OK</span>
@@ -230,7 +230,7 @@
               <h3>Memory-lean by design</h3>
             </div>
             <ul class="ticks">
-              <li>Idle process: ~2&ndash;4 MB private RSS (measured on a headless Debian 13 server)</li>
+              <li>Idle process: ~2 MB private RSS (was ~5 MB before v0.2.1; measured on a headless Debian 13 server)</li>
               <li>Sampler sleeps after 30 s with no viewer &mdash; history ring survives</li>
               <li>Command lines / environments never held between snapshots</li>
               <li>systemd unit ships with a 256 MB memory ceiling</li>
@@ -473,7 +473,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
         </details>
         <details>
           <summary>How much memory does it really use?</summary>
-          <div class="faq-body"><p>Around 2&ndash;4 MB private RSS at idle on a
+          <div class="faq-body"><p>Around 2 MB private RSS at idle on a
             headless Debian 13 server, and the sampler pauses after 30 seconds
             with no viewer. It never retains command lines or environments
             between snapshots, so long-running instances don&rsquo;t grow. The
@@ -522,6 +522,17 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
                 <tr><th style="width:16%;">Version</th><th style="width:15%;">Date</th><th>What changed</th></tr>
               </thead>
               <tbody>
+                <tr>
+                  <td><b>v0.2.1</b></td>
+                  <td>2026-10-11</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>About half the size.</b> The bundled HTTPS client behind <code>sysview update</code> now uses rustls with the compact <b><code>ring</code></b> provider (was <code>aws-lc-rs</code>) plus a size-optimised release profile &mdash; the static Linux binary drops from 5.1&nbsp;MB to 2.2&nbsp;MB (Windows 3.3&nbsp;MB &rarr; 1.8&nbsp;MB). Update behaviour is unchanged: same lookup, checksum verify, atomic replace.</li>
+                      <li><b>Leaner idle memory.</b> The background sampler now runs on a small capped stack, so on hosts with transparent huge pages enabled it no longer costs a 2&nbsp;MB huge page &mdash; idle RSS on a 4-core server fell from 4.9&nbsp;MB to 2.2&nbsp;MB.</li>
+                      <li><b>Fixed.</b> The example dashboard screenshots below are now viewport-sized (no more very long images), and the modern shot shows the real dark theme.</li>
+                    </ul>
+                  </td>
+                </tr>
                 <tr>
                   <td><b>v0.2.0</b></td>
                   <td>2026-10-10</td>

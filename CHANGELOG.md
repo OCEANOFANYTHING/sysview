@@ -3,8 +3,36 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.2.0` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.2.1` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.2.1] - 2026-10-11
+
+### Changed
+
+- **About half the size, and a leaner idle server.** The bundled HTTPS client
+  that powers `sysview update` now uses rustls with the compact **`ring`**
+  provider instead of the default `aws-lc-rs`, which statically linked a large
+  slice of BoringSSL. The client is a tiny hand-rolled HTTP/1.1 reader
+  (`Content-Length` and chunked bodies, redirects) over rustls + webpki-roots,
+  so the `minreq` dependency is gone. Together with a size-optimised release
+  profile (`opt-level = "z"`) this shrinks the fully static Linux binary from
+  5.1 MB to 2.2 MB (Windows: 3.3 MB to 1.8 MB). `sysview update` behaves
+  exactly as before — same GitHub lookup, checksum verification, atomic replace,
+  `--check` and `--force`.
+- **Idle memory roughly halved.** The background sampler now runs on a small
+  capped stack, so on hosts with `transparent_hugepage=always` it no longer
+  costs a full 2 MB huge page for an almost-empty thread stack. On a 4-core
+  Debian server the idle resident set fell from 4.9 MB to 2.2 MB, and the
+  binary's resident text shrank with the smaller executable. Sampling
+  behaviour, history and idle gating are unchanged.
+
+### Fixed
+
+- **Website dashboard screenshots.** The two example shots were captured
+  full-page and so appeared very long; they are now viewport-sized (800×822).
+  The "modern" shot had also been rendering in the legacy theme (a saved
+  browser preference) and now shows the real dark theme.
 
 ## [v0.2.0] - 2026-10-10
 

@@ -166,7 +166,7 @@ default, with a one-click retro legacy theme):
   they connect (nothing "starts over" on refresh).
 - **Idle-friendly:** sampling runs only while at least one dashboard is open
   (plus a short grace period for reloads). With zero viewers the server drops
-  its sampling state and sits at near-zero memory (≈2–4 MB private, measured on a
+  its sampling state and sits at near-zero memory (≈2 MB private, measured on a
   headless Debian 13 server — the exact figure varies by platform) until
   someone connects again; the shared history
   window — including the per-core and per-mount rings — is preserved across
@@ -257,7 +257,7 @@ The serve path is tuned to run continuously on Linux servers:
   same cadence as everything else, but into a single reused `Components`
   object — no fresh sysfs walk + label allocations per poll.
 - **Pauses itself.** With no viewer for 30 s the sampler is dropped and the
-  process returns to near-idle (≈2–4 MB private RSS, measured on a headless
+  process returns to near-idle (≈2 MB private RSS, measured on a headless
   Debian 13 server — idle figures on other platforms are in the same low-MB
   range); command lines/environments are never held, so active-session
   overhead stays at or under ~1 MB regardless of how long it runs (≈0.2 MB on
@@ -534,6 +534,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.2.1** | **About half the size, leaner idle.** `sysview update` now builds its bundled HTTPS client on rustls with the compact **`ring`** provider (was `aws-lc-rs`) plus a size-optimised release profile — the static Linux binary drops from 5.1 MB to 2.2 MB (Windows 3.3 MB → 1.8 MB). The background sampler runs on a small capped stack, so it no longer costs a 2 MB huge page on `transparent_hugepage=always` hosts — idle RSS on a 4-core server fell from 4.9 MB to 2.2 MB. No behaviour change to `sysview update`. Website screenshots regenerated as viewport-sized captures. |
 | **v0.2.0** | **Self-update** (`sysview update` + a dashboard button) over a bundled HTTPS client, checksum-verified, no `git`/`curl` needed — token and settings preserved so URLs never change. **Multiple access keys** with labels and expiry (keys file + `SYSVIEW_TOKEN`/`SYSVIEW_KEYS`, `sysview key add/list/rm/expire`), plus a dashboard **Settings** panel for keys, live interval/process-cap/kiosk, network bind/interface/port and updates. **`--interface <name>`** binds to a named adapter's current IPv4. New **CPU-temperature card** and a **load gauge**. |
 | **v0.1.6** | Reboot-proof binds: when a specific bind address isn't on any interface yet (Wi-Fi/DHCP still coming up right after boot), `serve` waits up to 30 s for it instead of crash-looping — so a pinned `--bind <lan-ip>` URL survives reboots cleanly. The live dashboard now binds to one stable address on the server. |
 | **v0.1.5** | Real sysview logo everywhere: site favicon + apple-touch icon + nav mark + hero masthead, and the dashboard serves the icon at `/favicon.ico` from a ~1.7 KB embedded PNG (the binary stays light). New demo-data legacy-theme screenshot on the site so you can see the retro look before downloading. |
