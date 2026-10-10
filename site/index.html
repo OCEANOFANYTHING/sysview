@@ -44,7 +44,7 @@
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "license": "https://github.com/OCEANOFANYTHING/sysview/blob/main/LICENSE",
-      "dateModified": "2026-10-09",
+      "dateModified": "2026-10-11",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
       "author": { "@type": "Organization", "name": "N&D Co — Brand & Growth Agency", "url": "https://ndcompany.in" },
       "publisher": { "@type": "Organization", "name": "N&D Co — Brand & Growth Agency", "url": "https://ndcompany.in" }
@@ -64,7 +64,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "isPartOf": { "@id": "https://oceanofanything.github.io/sysview/#website" },
       "about": { "@id": "https://oceanofanything.github.io/sysview/#software" },
-      "dateModified": "2026-10-09"
+      "dateModified": "2026-10-11"
     },
     {
       "@type": "Organization",
@@ -81,7 +81,8 @@
         { "@type": "Question", "name": "How much memory does it really use?", "acceptedAnswer": { "@type": "Answer", "text": "Around 2 MB private RSS at idle on a headless Debian 13 server (about half of v0.2.0), and the sampler pauses after 30 seconds with no viewer." } },
         { "@type": "Question", "name": "Will it come back after a reboot or crash?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. The systemd unit is installed enabled with WantedBy=multi-user.target and Restart=always, so it starts after the network is online and revives within seconds of any crash." } },
         { "@type": "Question", "name": "Does it have Prometheus support?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. /metrics on the same port, Prometheus text 0.0.4, token-protected, and decoded from the already-cached snapshot for zero per-poll allocations." } },
-        { "@type": "Question", "name": "What about HTTPS?", "acceptedAnswer": { "@type": "Answer", "text": "Put a reverse proxy such as nginx or Caddy in front of it for TLS. The service listens on a single port and speaks plain HTTP." } }
+        { "@type": "Question", "name": "What about HTTPS?", "acceptedAnswer": { "@type": "Answer", "text": "Put a reverse proxy such as nginx or Caddy in front of it for TLS. The service listens on a single port and speaks plain HTTP." } },
+        { "@type": "Question", "name": "How do I update it?", "acceptedAnswer": { "@type": "Answer", "text": "Run sysview update: it fetches the latest release over HTTPS, verifies it against the release's SHA256SUMS, and replaces the binary in place with no git, curl or package manager. Your token and settings are kept, so existing URLs never change. Use update --check to only look, --force to reinstall, or the update button in the dashboard Settings panel." } }
       ]
     }
   ]
@@ -197,10 +198,11 @@
               <h3>Terminal CLI</h3>
             </div>
             <ul class="ticks">
-              <li>Sections: <code>cpu</code>, <code>mem</code>, <code>procs</code>, <code>disks</code>, <code>net</code>, <code>temp</code> &mdash; or the full overview</li>
+              <li>Sections: <code>sys</code>, <code>cpu</code>, <code>mem</code>, <code>procs</code>, <code>disks</code>, <code>net</code>, <code>vmstat</code>, <code>sensors</code> &mdash; or the full overview</li>
               <li><code>--watch</code> live refresh, <code>--json</code> machine-readable output</li>
-              <li>Sortable process table (<code>--sort cpu|mem...</code>), <code>--top N</code></li>
+              <li>Sortable &amp; filterable process table (<code>--sort</code>, <code>--top N</code>, <code>--filter-name</code>)</li>
               <li>Color modes <code>auto|always|never</code>, units <code>iec|si|bytes</code></li>
+              <li><b><code>sysview key add</code></b> mints extra keys with labels &amp; expiry; <b><code>sysview update</code></b> self-updates with no external tools</li>
             </ul>
           </div>
         </article>
@@ -217,6 +219,7 @@
               <li>Per-core CPU sparklines, drawn crisply on HiDPI displays</li>
               <li>Shared 240-sample history across every connected device</li>
               <li>CPU-temperature card &amp; load gauge, disk donuts, net/sensor mini-trends, kiosk mode with on-screen exit, retro legacy theme, snapshot JSON download</li>
+              <li>Health score badge, disk &ldquo;days until full&rdquo; forecast, timeline markers (<code>M</code>), alert pulses when CPU/mem/swap run hot, and a staleness readout</li>
               <li>Settings panel: manage access keys, interval, process cap, bind/interface/port and updates from the browser</li>
             </ul>
           </div>
@@ -281,19 +284,22 @@
             <pre class="term"><code><span class="cm">C:\&gt; REM download sysview-windows-x86_64.exe, then:</span>
 <span class="pr">C:\&gt;</span> sysview-windows-x86_64.exe                 <span class="cm">REM full overview</span>
 <span class="pr">C:\&gt;</span> sysview-windows-x86_64.exe procs --top 20  <span class="cm">REM top processes by CPU</span>
-<span class="pr">C:\&gt;</span> sysview-windows-x86_64.exe serve           <span class="cm">REM dashboard on :8080</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
+<span class="pr">C:\&gt;</span> sysview-windows-x86_64.exe serve           <span class="cm">REM dashboard on :8080</span>
+<span class="pr">C:\&gt;</span> sysview-windows-x86_64.exe update          <span class="cm">REM self-update to latest</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
           </div>
           <div class="panel hidden" id="panel-linux" role="tabpanel">
             <pre class="term"><code><span class="cm"># chmod +x sysview-linux-x86_64-musl</span>
 <span class="pr">$</span> ./sysview-linux-x86_64-musl                      <span class="cm"># full overview</span>
 <span class="pr">$</span> ./sysview-linux-x86_64-musl cpu --json           <span class="cm"># CPU as JSON</span>
-<span class="pr">$</span> ./sysview-linux-x86_64-musl serve --bind 0.0.0.0 --port 8080 --token "$SECRET"</code><button class="copy" aria-label="Copy">Copy</button></pre>
+<span class="pr">$</span> ./sysview-linux-x86_64-musl serve --bind 0.0.0.0 --port 8080 --token "$SECRET"
+<span class="pr">$</span> ./sysview-linux-x86_64-musl update          <span class="cm"># self-update to latest</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
           </div>
           <div class="panel hidden" id="panel-mac" role="tabpanel">
             <pre class="term"><code><span class="cm"># chmod +x sysview-mac-universal</span>
 <span class="pr">$</span> ./sysview-mac-universal                          <span class="cm"># full overview</span>
 <span class="pr">$</span> ./sysview-mac-universal --watch --interval 1 --sort mem -r --top 15
-<span class="pr">$</span> ./sysview-mac-universal serve                    <span class="cm"># dashboard on :8080</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
+<span class="pr">$</span> ./sysview-mac-universal serve                    <span class="cm"># dashboard on :8080</span>
+<span class="pr">$</span> ./sysview-mac-universal update                   <span class="cm"># self-update to latest</span></code><button class="copy" aria-label="Copy">Copy</button></pre>
           </div>
 
           <div class="callout win">
@@ -333,7 +339,10 @@
             <h3>Token on every route</h3>
             <p>Set <code>--token</code> and every route (<code>/</code>,
               <code>/api/snapshot</code>, <code>/metrics</code>) returns
-              <code>401</code> without it. Token never appears in logs.</p>
+              <code>401</code> without it. Add as many labelled keys as you
+              like, each with its own expiry
+              (<code>sysview key add --expires 30d</code>). Tokens never
+              appear in logs.</p>
           </div>
         </article>
         <article class="win">
@@ -499,6 +508,18 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
             of it for TLS. The service listens on a single port and speaks
             plain HTTP, like any other self-hosted tool &mdash; your proxy adds
             the certificate.</p></div>
+        </details>
+        <details>
+          <summary>How do I update it?</summary>
+          <div class="faq-body"><p>Run <code>sysview update</code> &mdash; it
+            fetches the latest release over HTTPS, verifies it against the
+            release&rsquo;s <code>SHA256SUMS</code>, and replaces the binary in
+            place with no <code>git</code>, <code>curl</code> or package
+            manager. Your token and settings are kept, so existing URLs never
+            change. <code>update --check</code> only looks, <code>--force</code>
+            reinstalls, and there&rsquo;s an <b>update</b> button in the
+            dashboard Settings panel. Adding keys works the same way:
+            <code>sysview key add --label phone --expires 30d</code>.</p></div>
         </details>
       </div>
     </div>
@@ -676,7 +697,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
       <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &mdash;
       a brand &amp; growth agency. Built with Rust; no runtime, no framework,
       no build step for users. Written from scratch; made to stay out of your way.</p>
-    <p class="copyright">&copy; 1997-<span id="year">2026</span> SYSVIEW. All rights reserved. &bull; webmaster: <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &bull; page updated: 2026-10-09</p>
+    <p class="copyright">&copy; 1997-<span id="year">2026</span> SYSVIEW. All rights reserved. &bull; webmaster: <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &bull; page updated: 2026-10-11</p>
     <p class="totop"><a class="btn" href="#top">&#9650; Back to top</a></p>
   </div>
 </footer>

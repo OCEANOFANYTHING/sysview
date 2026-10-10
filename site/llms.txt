@@ -14,15 +14,22 @@
 ## Commands
 
 - `sysview` — full system overview (CPU, memory, disks, network, processes, sensors)
-- `sysview cpu|mem|procs|disks|net|temp` — single section; supports `--json` and `--watch`
+- `sysview sys|cpu|mem|procs|disks|net|vmstat|sensors` — one section; supports `--json` and `--watch`
 - `sysview procs --top N --sort cpu|mem` — top processes by CPU or memory
 - `sysview serve --bind 0.0.0.0 --port 8080 --token $SECRET` — live web dashboard and Prometheus `/metrics` on one port
+- `sysview serve --interface wlan0 --kiosk` — bind to a named adapter's IPv4; start in kiosk mode
+- `sysview key add --label phone --expires 30d` — multiple labelled access keys with expiry (`key list`, `key rm`, `key expire`)
+- `sysview update [--check|--force]` — self-update from GitHub Releases over HTTPS, verifying `SHA256SUMS` with no `git`/`curl`
 - `systemctl status sysview` — deployed server service (systemd unit ships `Restart=always` and `MemoryMax=256M`)
+
+## Dashboard
+
+The embedded dashboard (served by `sysview serve`) includes a health score badge, disk "days until full" forecast, timeline markers (`M`), alert pulses when CPU/memory/swap run hot, a legacy retro theme, kiosk mode with an on-screen exit, a snapshot JSON download, and a Settings panel for keys, interval, process cap, bind/interface/port and updates.
 
 ## Security
 
 - `serve` binds `127.0.0.1` by default; use `--bind 0.0.0.0` to expose on your LAN
-- `--token` protects every route (`/`, `/api/snapshot`, `/metrics`) with HTTP 401
+- `--token` protects every route (`/`, `/api/snapshot`, `/metrics`) with HTTP 401; multiple labelled keys with optional expiry are supported
 - On servers, the token is stored root-only at `/etc/sysview/env`
 
 ## Metrics
