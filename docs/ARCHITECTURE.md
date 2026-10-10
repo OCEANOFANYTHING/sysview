@@ -117,9 +117,30 @@ per-disk rings); the process list is capped by `--max-procs` (default 100).
 | `/` , `/index.html` | yes | yes | dashboard HTML |
 | `/api/snapshot` | yes | yes | JSON snapshot, or `503 {"error":"warming up"}` |
 | `/metrics` | yes | yes | Prometheus text 0.0.4, or `503 warming up` |
-| `/health` | yes | **no** | `{"ok":true}` |
-| `/favicon.ico` | yes | no | `204 No Content` |
-| anything else | yes | — | `404` |
+| `/health` | yes | **no** | `{"ok":true,"status":"ok","version":…,"uptime_secs":…,"sampling":…}` |
+| `/fleet` , `/fleet.html` | yes | **no** | multi-host fleet page (hosts live in the browser) |
+| `/manifest.webmanifest` | yes | **no** | web app manifest for the installable dashboard |
+| `/favicon.ico` | yes | no | 32×32 PNG |
+| `/api/*` (state-changing) | admin | — | `view` keys get `403` |
+
+When keys are configured, auth applies to every route (the `/health` row's "no"
+refers to idle re-arm, not to auth). A `view` key may read every read-only route;
+the state-changing routes (`/api/settings`, `/api/keys*`, `/api/update`,
+`/api/restart`) require an `admin` key. Repeated bad tokens from one IP get `429`
+after a small budget; a good token clears the counter. `serve --cors` (opt-in)
+adds `Access-Control-Allow-Origin: *` to the read routes so a fleet page on
+another origin can poll the host. `serve --tls-cert/--tls-key` terminates HTTPS
+in-process with the rustls already linked for the updater.
+
+### Threshold alerts
+
+When `--alert-*` thresholds and `--alert-webhook` are set, the **existing**
+sampler (no second thread) evaluates them from the snapshot it already builds and
+POSTs on each crossing, on a repeating reminder while firing, and once on
+recovery. POSTs run on a short-lived detached thread so a slow endpoint cannot
+stall sampling. Because an overnight crossing must still fire with nobody
+watching, enabling alerts keeps the sampler running while idle — documented as
+"costs the same as one open dashboard".
 
 ## Platform notes
 

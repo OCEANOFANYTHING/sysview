@@ -96,13 +96,21 @@ sysview procs --sort mem -r              Top 20 by memory (mem is already
 sysview procs --filter-name code         Only processes matching "code"
 sysview vmstat                           vmstat-style summary
 sysview sensors                          Temperature sensors (if reported)
+sysview ports                            Listening TCP ports (Linux)
+sysview battery                          Battery charge / state (Linux)
+sysview check --cpu 90 --mem 90          Exit non-zero on a threshold breach
 sysview --watch --interval 1             Live refresh every second
 sysview serve                            Embedded web dashboard on :8080
 sysview serve --port 9090 --bind 0.0.0.0 Remote dashboard on all interfaces
 sysview serve --interface wlan0          Bind to a named interface's IPv4
 sysview serve --kiosk                    Start in kiosk mode (fullscreen)
 sysview serve --token s3cret             Require ?token=s3cret access
+sysview serve --tls-cert c.pem --tls-key k.pem
+                                         Terminate HTTPS in the binary itself
+sysview serve --alert-cpu 90 --alert-webhook https://ntfy.sh/mytopic
+                                         POST when CPU crosses 90%
 sysview key add --expires 30d            Generate an expiring access key
+sysview key add --scope view             Read-only key (403 on changes)
 sysview key list                         List keys (label / masked / expiry)
 sysview update                           Update to the latest release
 ```
@@ -160,6 +168,12 @@ default, with a one-click retro legacy theme):
   are remembered in localStorage across reloads.
 - **Download:** the "↓" button saves the current snapshot as a JSON file,
   built entirely in the browser.
+- **Listening ports & power:** a panel appears on Linux when the host reports
+  TCP listeners (`/proc/net`) or a battery (`/sys/class/power_supply`), listing
+  the listening sockets and the charge / state / time-left. Bounded and
+  allocation-light, so it does not change the idle footprint.
+- **Installable app:** a web app manifest lets the dashboard be added to a
+  phone home screen and open standalone, without browser chrome.
 - **Shared history:** the server samples continuously and keeps the rolling
   240-sample window itself. Every device — and every reload — fetches the same
   server-side history, so all screens show identical charts from the moment
@@ -306,9 +320,11 @@ both, and each can carry a label and an expiry:
 ```bash
 sysview key add --label phone --expires 30d       # generate a 32-char token
 sysview key add --label tv --expires 1y --replace # also drop the previous keys
-sysview key list                                  # label / masked token / expiry
+sysview key add --label wall --scope view         # read-only key
+sysview key list                                  # label / masked token / scope / expiry
 sysview key rm phone
 sysview key expire tv --expires never
+sysview key scope wall --scope admin              # promote a key
 ```
 
 Expiry accepts `7d`, `30d`, `90d`, `6mo`, `1y`, `never`, a bare day count, or an
@@ -318,11 +334,81 @@ the UI:
 - `SYSVIEW_TOKEN` — a single token.
 - `SYSVIEW_KEYS` — `label:token[:expires]` entries, comma- or semicolon-separated.
 
+**Scopes.** Each key is `admin` (the default) or `view`. A `view` key can read
+the page, snapshot, metrics, health, fleet and interfaces, but every
+state-changing route (settings, keys, update, restart) answers `403` — safe to
+leave on a shared wall display. **Throttling.** Repeated bad tokens from one IP
+are answered `429` after a small budget; a successful auth clears the counter, so
+an attacker cannot lock out a valid token holder.
+
 The keys file and the settings file live in a per-user state directory
 (`$XDG_STATE_HOME/sysview`, `%LOCALAPPDATA%\sysview`, or `~/.local/state/sysview`),
 overridable with `SYSVIEW_STATE`, `SYSVIEW_KEYS_FILE` and `SYSVIEW_SETTINGS_FILE`.
 The keys file is re-read only when its size or mtime changes, comparisons are
 constant-time, and the dashboard only ever sees masked tokens.
+
+### Threshold alerts & webhooks
+
+`serve` can watch live values and POST when one crosses a threshold — handy for
+ntfy, Slack, Discord or a generic endpoint:
+
+```bash
+sysview serve --bind 0.0.0.0 --token "$TOKEN" \
+  --alert-cpu 90 --alert-mem 90 --alert-disk '*:85' \
+  --alert-webhook https://ntfy.sh/my-topic --alert-cooldown 300
+```
+
+Thresholds: `--alert-cpu/--alert-mem/--alert-swap` (percent), `--alert-load`
+(1-minute load average), and repeatable `--alert-disk MOUNT:PCT` (`*` matches the
+fullest mounted volume). The webhook body is chosen from the URL host: ntfy gets
+raw text, Slack `{"text": …}`, Discord `{"content": …}`, anything else generic
+JSON. Alerts fire on the crossing, repeat (respecting `--alert-cooldown`) while
+the value stays over the line, and fire once more on recovery. POSTs run on a
+short-lived detached thread, so a slow endpoint never stalls sampling.
+
+> With alerts configured the sampler keeps running even with no dashboard open —
+> otherwise an overnight crossing would never fire. That costs the same as one
+> open dashboard (a fraction of a MB).
+
+`sysview check` is the one-shot equivalent for cron/CI: it evaluates the same
+thresholds against a live sample and exits non-zero on a breach.
+
+```bash
+sysview check --cpu 90 --mem 90 --disk 90 --quiet
+sysview check --cpu 90 --json
+```
+
+`GET /health` returns a small JSON body
+(`{ok, status, version, uptime_secs, sampling}`) for uptime monitors.
+
+### HTTPS in the binary
+
+No reverse proxy needed — point `serve` at a PEM certificate chain and key:
+
+```bash
+sysview serve --bind 0.0.0.0 --port 8443 \
+  --tls-cert /etc/ssl/sysview/fullchain.pem --tls-key /etc/ssl/sysview/privkey.pem
+```
+
+Reuses the rustls already linked for `sysview update` (no new dependency); the
+key may be PKCS#8, PKCS#1 or SEC1. The TLS handshake is lazy, so a client that
+connects and leaves costs nothing.
+
+### Fleet page
+
+`/fleet` is a small page for watching several hosts at once: add each host (name,
+URL and optional token) in the browser and it polls their `/api/snapshot`,
+showing CPU/memory/swap/disk, uptime and up/down per host. The host list lives in
+the browser's `localStorage` — nothing is stored on the server. To let a fleet
+page on another origin poll a host, start that host with the opt-in flag:
+
+```bash
+sysview serve --bind 0.0.0.0 --token "$TOKEN" --cors
+```
+
+`--cors` adds `Access-Control-Allow-Origin: *` to read responses only; tokens
+ride the query string so the browser sends no preflight. Leave it off unless you
+need it.
 
 ### Self-update
 
@@ -508,9 +594,10 @@ bash scripts/check-gate.sh
 
 # ...or run the steps directly:
 cargo fmt -- --check              # rustfmt gate (needs: rustup component add rustfmt)
-cargo test                        # unit + integration tests (34: sampling, HTTP, auth,
+cargo test                        # unit + integration tests (67: sampling, HTTP, auth,
+                                  #   scopes + throttling, alerts/webhooks, TLS parse,
                                   #   LAN binding, lifecycle/idle gating, limits/timeouts,
-                                  #   ring, /metrics)
+                                  #   ring, /metrics, CORS, fleet/manifest)
 cargo clippy -- -D warnings       # zero-warning lint gate
 cargo check --target x86_64-unknown-linux-gnu   # compile-check the Linux branch on any host
 cargo clippy --target x86_64-unknown-linux-gnu -- -D warnings   # lint the Linux branch too
@@ -523,7 +610,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.2.1 && git push origin v0.2.1
+git tag v0.2.2 && git push origin v0.2.2
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -534,6 +621,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.2.2** | **Monitoring, hardened.** Threshold **alerts + webhooks** (`--alert-cpu/--alert-mem/--alert-swap/--alert-load/--alert-disk`, ntfy/Slack/Discord/generic `--alert-webhook`) evaluated inside the existing sampler. **Per-key scopes** (`admin`/`view`, `view` gets `403` on every change) and **per-IP brute-force throttling** (`429`). JSON **`/health`** and a scriptable **`sysview check`** that exits non-zero on a breach. Built-in **HTTPS** (`--tls-cert/--tls-key`, no proxy, no new deps). A browser **fleet page** (`/fleet`, opt-in `--cors`) and installable **web app manifest**. **`sysview ports`/`battery`** plus a dashboard panel, all RAM-neutral. |
 | **v0.2.1** | **About half the size, leaner idle.** `sysview update` now builds its bundled HTTPS client on rustls with the compact **`ring`** provider (was `aws-lc-rs`) plus a size-optimised release profile — the static Linux binary drops from 5.1 MB to 2.2 MB (Windows 3.3 MB → 1.8 MB). The background sampler runs on a small capped stack, so it no longer costs a 2 MB huge page on `transparent_hugepage=always` hosts — idle RSS on a 4-core server fell from 4.9 MB to 2.2 MB. No behaviour change to `sysview update`. Website screenshots regenerated as viewport-sized captures. |
 | **v0.2.0** | **Self-update** (`sysview update` + a dashboard button) over a bundled HTTPS client, checksum-verified, no `git`/`curl` needed — token and settings preserved so URLs never change. **Multiple access keys** with labels and expiry (keys file + `SYSVIEW_TOKEN`/`SYSVIEW_KEYS`, `sysview key add/list/rm/expire`), plus a dashboard **Settings** panel for keys, live interval/process-cap/kiosk, network bind/interface/port and updates. **`--interface <name>`** binds to a named adapter's current IPv4. New **CPU-temperature card** and a **load gauge**. |
 | **v0.1.6** | Reboot-proof binds: when a specific bind address isn't on any interface yet (Wi-Fi/DHCP still coming up right after boot), `serve` waits up to 30 s for it instead of crash-looping — so a pinned `--bind <lan-ip>` URL survives reboots cleanly. The live dashboard now binds to one stable address on the server. |

@@ -3,8 +3,43 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.2.1` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.2.2` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.2.2] - 2026-10-11
+
+### Added
+
+- **Threshold alerts with outbound webhooks.** `sysview serve` can watch CPU,
+  memory, swap, load and any mount (`--alert-disk '*:90'`) and POST when a
+  threshold is crossed, again while it stays crossed, and once on recovery.
+  Bodies are chosen per host: ntfy raw text, Slack `{text}`, Discord `{content}`,
+  anything else generic JSON. POSTs run on a short-lived detached thread, so a
+  slow endpoint never stalls sampling. When alerts are configured the sampler
+  keeps running with no viewer — the same cost as one open dashboard — because
+  otherwise an overnight crossing would never fire.
+- **Per-key scopes.** Keys are now `admin` or `view`. A `view` key can read the
+  page, snapshot, metrics, health, fleet and interfaces but gets `403` on every
+  state-changing route, so a wall display is safe to hand out. `serve --token`
+  and keys added without a scope default to `admin`. Manage with
+  `sysview key add --scope view` / `sysview key scope <id> --scope view`, or the
+  dashboard's keys table.
+- **Brute-force throttling.** Repeated bad tokens from one IP get `429` after a
+  small budget; a successful auth clears the counter. No external rate limiter.
+- **JSON `/health`.** Returns `{ok, status, version, uptime_secs, sampling}` for
+  uptime monitors, and `sysview check --cpu 90 --mem 90 …` exits non-zero on a
+  breach (with `--json` and `--quiet`) for cron and CI probes.
+- **Built-in HTTPS.** `serve --tls-cert cert.pem --tls-key key.pem` terminates
+  TLS itself (PKCS#8, PKCS#1 or SEC1 keys) reusing the rustls already linked for
+  the updater — no reverse proxy and no new dependency.
+- **Fleet page.** `/fleet` watches several sysview hosts at once: add them in the
+  browser, it polls each `/api/snapshot` and shows cpu/mem/swap/disk, uptime and
+  up/down. `serve --cors` (opt-in) lets a fleet page on another origin poll this
+  host; tokens ride the query string so there is no preflight. A web app manifest
+  lets the dashboard install as a standalone app.
+- **Listening ports and battery.** `sysview ports` and `sysview battery` (also a
+  dashboard panel) read Linux `/proc/net` and `/sys/class/power_supply`; both are
+  bounded and allocation-light, so the idle footprint is unchanged.
 
 ## [v0.2.1] - 2026-10-11
 
