@@ -429,6 +429,7 @@ code, .mono {
 .icobox svg { width: 26px; height: 26px; }
 .ico-navy { background: #000080; } .ico-teal { background: #008080; }
 .ico-green { background: #00aa00; } .ico-purple { background: #800080; }
+.ico-red { background: #b00020; } .ico-amber { background: #b8860b; }
 .feature-card p, .feature-card li { font-size: 14px; }
 .ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .ticks li { padding-left: 24px; position: relative; font-size: 14px; }

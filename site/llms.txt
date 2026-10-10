@@ -4,7 +4,7 @@
 
 ## About
 
-- Current version: v0.2.1
+- Current version: v0.2.2
 - Platforms: Windows x86_64, Linux x86_64 (musl/glibc), macOS (universal)
 - Binary size: about 1.8 MB (Windows) and 2.2 MB (Linux musl); 3.4 MB macOS universal
 - Idle memory: about 2 MB RSS (roughly half of v0.2.0)
@@ -18,18 +18,24 @@
 - `sysview procs --top N --sort cpu|mem` — top processes by CPU or memory
 - `sysview serve --bind 0.0.0.0 --port 8080 --token $SECRET` — live web dashboard and Prometheus `/metrics` on one port
 - `sysview serve --interface wlan0 --kiosk` — bind to a named adapter's IPv4; start in kiosk mode
-- `sysview key add --label phone --expires 30d` — multiple labelled access keys with expiry (`key list`, `key rm`, `key expire`)
+- `sysview serve --tls-cert fullchain.pem --tls-key privkey.pem` — terminate HTTPS in the binary (no reverse proxy, no new dependency)
+- `sysview serve --alert-cpu 90 --alert-mem 90 --alert-disk '*:85' --alert-webhook https://ntfy.sh/topic` — POST when a threshold is crossed, repeats while hot, and once on recovery (ntfy / Slack / Discord / generic JSON)
+- `sysview check --cpu 90 --mem 90 --disk 90 [--quiet|--json]` — one-shot threshold probe that exits non-zero on a breach (cron / CI)
+- `sysview ports` / `sysview battery` — listening TCP sockets and battery state (Linux; also a dashboard panel)
+- `sysview key add --label phone --expires 30d [--scope view]` — labelled keys with expiry and an `admin` or `view` scope (`key list`, `key rm`, `key expire`, `key scope`)
 - `sysview update [--check|--force]` — self-update from GitHub Releases over HTTPS, verifying `SHA256SUMS` with no `git`/`curl`
 - `systemctl status sysview` — deployed server service (systemd unit ships `Restart=always` and `MemoryMax=256M`)
 
 ## Dashboard
 
-The embedded dashboard (served by `sysview serve`) includes a health score badge, disk "days until full" forecast, timeline markers (`M`), alert pulses when CPU/memory/swap run hot, a legacy retro theme, kiosk mode with an on-screen exit, a snapshot JSON download, and a Settings panel for keys, interval, process cap, bind/interface/port and updates.
+The embedded dashboard (served by `sysview serve`) includes a health score badge, disk "days until full" forecast, timeline markers (`M`), alert pulses when CPU/memory/swap run hot, a legacy retro theme, kiosk mode with an on-screen exit, a snapshot JSON download, a listening-ports & power panel (Linux), and a Settings panel for keys, interval, process cap, bind/interface/port and updates. A web app manifest makes it installable as a standalone app, and `/fleet` is a page (hosts kept in the browser's localStorage) for watching several hosts at once.
 
 ## Security
 
 - `serve` binds `127.0.0.1` by default; use `--bind 0.0.0.0` to expose on your LAN
-- `--token` protects every route (`/`, `/api/snapshot`, `/metrics`) with HTTP 401; multiple labelled keys with optional expiry are supported
+- `--token` protects every route (`/`, `/api/snapshot`, `/metrics`, `/health`, `/fleet`) with HTTP 401; labelled keys with optional expiry are supported and are scoped `admin` (full) or `view` (read-only — `403` on every state-changing route)
+- Repeated bad tokens from one IP are throttled with `429`; a good token clears the counter
+- `serve --tls-cert/--tls-key` terminates HTTPS in the binary (PKCS#8/PKCS#1/SEC1); `serve --cors` (opt-in) adds `Access-Control-Allow-Origin: *` to read routes so a fleet page on another origin can poll the host
 - On servers, the token is stored root-only at `/etc/sysview/env`
 
 ## Metrics

@@ -39,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.2.1",
+      "softwareVersion": "0.2.2",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -96,8 +96,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.1 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.1 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.2 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.2 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -107,7 +107,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.2.1</span>
+      <span class="brand-ver">v0.2.2</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -137,7 +137,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.1 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.2 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -198,11 +198,12 @@
               <h3>Terminal CLI</h3>
             </div>
             <ul class="ticks">
-              <li>Sections: <code>sys</code>, <code>cpu</code>, <code>mem</code>, <code>procs</code>, <code>disks</code>, <code>net</code>, <code>vmstat</code>, <code>sensors</code> &mdash; or the full overview</li>
+              <li>Sections: <code>sys</code>, <code>cpu</code>, <code>mem</code>, <code>procs</code>, <code>disks</code>, <code>net</code>, <code>vmstat</code>, <code>sensors</code>, <code>ports</code>, <code>battery</code> &mdash; or the full overview</li>
               <li><code>--watch</code> live refresh, <code>--json</code> machine-readable output</li>
               <li>Sortable &amp; filterable process table (<code>--sort</code>, <code>--top N</code>, <code>--filter-name</code>)</li>
               <li>Color modes <code>auto|always|never</code>, units <code>iec|si|bytes</code></li>
-              <li><b><code>sysview key add</code></b> mints extra keys with labels &amp; expiry; <b><code>sysview update</code></b> self-updates with no external tools</li>
+              <li><b><code>sysview check --cpu 90 --mem 90</code></b> scores live values against thresholds and exits non-zero &mdash; a cron / CI probe in one line</li>
+              <li><b><code>sysview key add</code></b> mints keys with labels, expiry and a <code>view</code> / <code>admin</code> scope; <b><code>sysview update</code></b> self-updates with no external tools</li>
             </ul>
           </div>
         </article>
@@ -220,6 +221,9 @@
               <li>Shared 240-sample history across every connected device</li>
               <li>CPU-temperature card &amp; load gauge, disk donuts, net/sensor mini-trends, kiosk mode with on-screen exit, retro legacy theme, snapshot JSON download</li>
               <li>Health score badge, disk &ldquo;days until full&rdquo; forecast, timeline markers (<code>M</code>), alert pulses when CPU/mem/swap run hot, and a staleness readout</li>
+              <li>Listening-ports &amp; power panel (Linux) and a device-rendered battery state, next to the usual disk donuts and net/sensor trends</li>
+              <li><b><code>/fleet</code></b> watches several hosts at once &mdash; add them in the browser, it polls each <code>/api/snapshot</code> and shows up/down, CPU, memory, disk and uptime</li>
+              <li>Installable: a web app manifest adds the dashboard to a phone home screen and opens it standalone</li>
               <li>Settings panel: manage access keys, interval, process cap, bind/interface/port and updates from the browser</li>
             </ul>
           </div>
@@ -253,6 +257,38 @@
               <li>CPU, load, memory, swap, disks, per-interface net, temp sensors, process count</li>
               <li>Decoded from the cached snapshot: nothing materialized, nothing retained</li>
               <li>Zero cost while idle &mdash; same 30 s pause as the dashboard</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="feature-card win">
+          <div class="titlebar">[ ALERT.EXE - SIGNAL SENT ]<span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span></div>
+          <div class="win-body">
+            <div class="card-head">
+              <span class="icobox ico-red" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+              <h3>Threshold alerts &amp; webhooks</h3>
+            </div>
+            <ul class="ticks">
+              <li><code>--alert-cpu</code>, <code>--alert-mem</code>, <code>--alert-swap</code>, <code>--alert-load</code>, <code>--alert-disk '*:90'</code></li>
+              <li>POSTs <code>--alert-webhook</code> on the crossing, repeats on a cooldown while hot, and once on recovery</li>
+              <li>Body chosen per host: ntfy raw text, Slack, Discord or generic JSON</li>
+              <li>Evaluated inside the existing sampler, so it adds no second thread &mdash; the POST rides a short-lived detached thread and never stalls sampling</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="feature-card win">
+          <div class="titlebar">[ TLS.EXE - LOCKED ]<span class="tb-x" aria-hidden="true"><i>&#95;</i><i>&#9633;</i><i>&#10005;</i></span></div>
+          <div class="win-body">
+            <div class="card-head">
+              <span class="icobox ico-amber" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="0"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+              <h3>Built-in HTTPS &amp; scoped keys</h3>
+            </div>
+            <ul class="ticks">
+              <li><code>--tls-cert</code> / <code>--tls-key</code> terminates TLS in the binary itself &mdash; no reverse proxy, no new dependency</li>
+              <li>Keys are <b><code>admin</code></b> or <b><code>view</code></b>; a <code>view</code> key gets <code>403</code> on every state-changing route, so a wall display is safe to share</li>
+              <li>Per-IP brute-force throttling returns <code>429</code> after a small budget; a good token clears it</li>
+              <li><code>GET /health</code> returns JSON (<code>{ok, status, version, uptime_secs}</code>) for uptime monitors</li>
             </ul>
           </div>
         </article>
@@ -338,11 +374,14 @@
           <div class="win-body">
             <h3>Token on every route</h3>
             <p>Set <code>--token</code> and every route (<code>/</code>,
-              <code>/api/snapshot</code>, <code>/metrics</code>) returns
-              <code>401</code> without it. Add as many labelled keys as you
-              like, each with its own expiry
-              (<code>sysview key add --expires 30d</code>). Tokens never
-              appear in logs.</p>
+              <code>/api/snapshot</code>, <code>/metrics</code>,
+              <code>/health</code>) returns <code>401</code> without it. Add
+              labelled keys with their own expiry
+              (<code>sysview key add --expires 30d</code>), each scoped
+              <code>admin</code> or <code>view</code> &mdash; a
+              <code>view</code> key gets <code>403</code> on every change.
+              Repeated bad tokens are throttled with <code>429</code>. Tokens
+              never appear in logs.</p>
           </div>
         </article>
         <article class="win">
@@ -355,9 +394,11 @@
           </div>
         </article>
       </div>
-      <p class="sub"><b>&#9654; NOTE:</b> for HTTPS in front of a LAN deployment,
-        put it behind a reverse proxy (nginx / Caddy). The service listens on
-        one port and speaks plain HTTP &mdash; same story as any self-hosted app.</p>
+      <p class="sub"><b>&#9654; NOTE:</b> since v0.2.2 the binary can terminate
+        HTTPS itself &mdash; <code>serve --tls-cert fullchain.pem --tls-key
+        privkey.pem</code> &mdash; reusing the rustls already linked for
+        <code>sysview update</code>, so there's no extra dependency. Prefer a
+        reverse proxy (nginx / Caddy) for automatic certificates; both work.</p>
     </div>
   </section>
 
@@ -503,11 +544,24 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
             already-cached snapshot with zero per-poll allocations.</p></div>
         </details>
         <details>
+          <summary>What about alerts and monitoring?</summary>
+          <div class="fix"> </div>
+          <div class="faq-body"><p><code>serve --alert-cpu 90 --alert-mem 90
+            --alert-webhook https://ntfy.sh/my-topic</code> posts when a
+            threshold is crossed, again on a cooldown while it stays hot, and
+            once on recovery &mdash; the body adapts to ntfy, Slack, Discord or
+            generic JSON. For scripts, <code>sysview check --cpu 90</code> exits
+            non-zero on a breach, and <code>GET /health</code> returns JSON for
+            an uptime monitor.</p></div>
+        </details>
+        <details>
           <summary>What about HTTPS?</summary>
-          <div class="faq-body"><p>Put a reverse proxy (nginx, Caddy) in front
-            of it for TLS. The service listens on a single port and speaks
-            plain HTTP, like any other self-hosted tool &mdash; your proxy adds
-            the certificate.</p></div>
+          <div class="faq-body"><p>Two options. Since v0.2.2 you can terminate
+            TLS in the binary itself &mdash; <code>serve --tls-cert cert.pem
+            --tls-key key.pem</code> (PEM, PKCS#8/PKCS#1/SEC1) &mdash; with no
+            reverse proxy and no new dependency. Or put nginx / Caddy in front
+            for automatic certificate management, as with any self-hosted
+            tool.</p></div>
         </details>
         <details>
           <summary>How do I update it?</summary>
@@ -543,6 +597,20 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
                 <tr><th style="width:16%;">Version</th><th style="width:15%;">Date</th><th>What changed</th></tr>
               </thead>
               <tbody>
+                <tr>
+                  <td><b>v0.2.2</b></td>
+                  <td>2026-10-11</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Threshold alerts &amp; webhooks.</b> <code>serve</code> can watch CPU, memory, swap, load and any mount (<code>--alert-cpu/--alert-mem/--alert-swap/--alert-load/--alert-disk '*:90'</code>) and POST on the crossing, on a repeating cooldown while it stays hot, and once on recovery. The body adapts per host (ntfy, Slack, Discord, generic JSON), and the POST rides a short-lived detached thread so sampling never stalls.</li>
+                      <li><b>Per-key scopes &amp; throttling.</b> Keys are now <code>admin</code> or <code>view</code>; a <code>view</code> key can read the dashboard, snapshot, metrics, health and fleet but gets <code>403</code> on every change &mdash; safe for a wall display. Repeated bad tokens from one IP get <code>429</code>.</li>
+                      <li><b>JSON <code>/health</code> and <code>sysview check</code>.</b> A small JSON probe for uptime monitors, plus a one-shot <code>sysview check --cpu 90 --mem 90</code> that exits non-zero on a breach for cron / CI.</li>
+                      <li><b>Built-in HTTPS.</b> <code>serve --tls-cert cert.pem --tls-key key.pem</code> terminates TLS in the binary (PKCS#8/PKCS#1/SEC1), reusing the rustls already linked for <code>sysview update</code> &mdash; no reverse proxy, no new dependency.</li>
+                      <li><b>Fleet page &amp; installable app.</b> <code>/fleet</code> watches several hosts at once (the host list lives in the browser, so the server stores nothing); opt-in <code>--cors</code> lets a fleet page on another origin poll a host; a web app manifest makes the dashboard installable.</li>
+                      <li><b>Listening ports &amp; battery.</b> <code>sysview ports</code> and <code>sysview battery</code> (plus a dashboard panel) read Linux <code>/proc/net</code> and <code>/sys/class/power_supply</code> &mdash; bounded and allocation-light, so the idle footprint is unchanged.</li>
+                    </ul>
+                  </td>
+                </tr>
                 <tr>
                   <td><b>v0.2.1</b></td>
                   <td>2026-10-11</td>
@@ -652,7 +720,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.1</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.2</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by
