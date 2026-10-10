@@ -3567,6 +3567,12 @@ mod tests {
                     critical_c: None,
                 }],
             },
+            listening: vec![crate::model::ListeningPort {
+                proto: "tcp".to_string(),
+                address: "0.0.0.0".to_string(),
+                port: 8080,
+            }],
+            battery: None,
             history,
         }
     }

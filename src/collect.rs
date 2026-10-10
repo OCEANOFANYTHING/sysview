@@ -1,6 +1,11 @@
 use std::collections::HashMap;
 use std::thread;
 
+#[cfg(target_os = "linux")]
+use std::net::Ipv6Addr;
+#[cfg(target_os = "linux")]
+use std::path::Path;
+
 use sysinfo::{
     Components, Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, Process, ProcessRefreshKind,
     ProcessesToUpdate, System, UpdateKind, Users,
@@ -214,6 +219,128 @@ pub fn check_metrics() -> CheckMetrics {
         load_one,
         disks,
     }
+}
+
+/// One socket that is accepting connections (TCP `LISTEN`), parsed from
+/// `/proc/net/tcp` and `/proc/net/tcp6`. Linux only; other platforms return an
+/// empty list because the OS exposes no equivalent cheaply. The result is
+/// bounded by the kernel's listening-socket count, so it stays tiny.
+pub fn listening_ports() -> Vec<ListeningPort> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut ports = Vec::new();
+        for (file, proto) in [("/proc/net/tcp", "tcp"), ("/proc/net/tcp6", "tcp6")] {
+            let Ok(text) = std::fs::read_to_string(file) else {
+                continue;
+            };
+            // Columns: sl local_address rem_address st ...
+            for line in text.lines().skip(1) {
+                let mut fields = line.split_whitespace();
+                let _sl = fields.next();
+                let Some(local) = fields.next() else { continue };
+                let _rem = fields.next();
+                let Some(state) = fields.next() else { continue };
+                if state != "0A" {
+                    // 0A = TCP_LISTEN; everything else is an established or
+                    // transient socket we do not want to list.
+                    continue;
+                }
+                if let Some((address, port)) = parse_proc_address(local) {
+                    ports.push(ListeningPort {
+                        proto: proto.to_string(),
+                        address,
+                        port,
+                    });
+                }
+            }
+        }
+        ports.sort_by(|a, b| (a.port, &a.address).cmp(&(b.port, &b.address)));
+        ports.dedup_by(|a, b| a.port == b.port && a.address == b.address);
+        ports
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
+}
+
+/// Parses a `/proc/net/*` `ADDRESS:PORT` cell. The address is hex in the
+/// kernel's per-word little-endian layout.
+#[cfg(target_os = "linux")]
+fn parse_proc_address(cell: &str) -> Option<(String, u16)> {
+    let (addr_hex, port_hex) = cell.split_once(':')?;
+    let port = u16::from_str_radix(port_hex, 16).ok()?;
+    let byte = |s: &str| u8::from_str_radix(s, 16).ok();
+    let address = match addr_hex.len() {
+        8 => {
+            // IPv4: four bytes, least-significant first.
+            let b0 = byte(&addr_hex[0..2])?;
+            let b1 = byte(&addr_hex[2..4])?;
+            let b2 = byte(&addr_hex[4..6])?;
+            let b3 = byte(&addr_hex[6..8])?;
+            format!("{b3}.{b2}.{b1}.{b0}")
+        }
+        32 => {
+            // IPv6: four 32-bit words, each stored little-endian.
+            let mut octets = [0u8; 16];
+            for word in 0..4 {
+                for j in 0..4 {
+                    let at = word * 8 + j * 2;
+                    octets[word * 4 + (3 - j)] = byte(&addr_hex[at..at + 2])?;
+                }
+            }
+            Ipv6Addr::from(octets).to_string()
+        }
+        _ => return None,
+    };
+    Some((address, port))
+}
+
+/// Battery / power-supply summary from `/sys/class/power_supply`. Linux only.
+pub fn battery_info() -> Option<BatteryInfo> {
+    #[cfg(target_os = "linux")]
+    {
+        for entry in std::fs::read_dir("/sys/class/power_supply").ok()?.flatten() {
+            let dir = entry.path();
+            if read_trim(dir.join("type")).as_deref() != Some("Battery") {
+                continue;
+            }
+            let percent = read_trim(dir.join("capacity")).and_then(|v| v.parse::<f32>().ok());
+            let status = read_trim(dir.join("status")).unwrap_or_default();
+            let charging = matches!(status.as_str(), "Charging" | "Full");
+            return Some(BatteryInfo {
+                percent,
+                charging,
+                minutes_left: battery_minutes_left(&dir),
+            });
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_trim(path: std::path::PathBuf) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+/// Minutes until empty, from `energy_now/power_now` (µWh/µW) or
+/// `charge_now/current_now` (µAh/µA). `None` when the driver omits a rate.
+#[cfg(target_os = "linux")]
+fn battery_minutes_left(dir: &Path) -> Option<u64> {
+    let now = read_trim(dir.join("energy_now")).or_else(|| read_trim(dir.join("charge_now")))?;
+    let rate = read_trim(dir.join("power_now")).or_else(|| read_trim(dir.join("current_now")))?;
+    let now = now.parse::<f64>().ok()?;
+    let rate = rate.parse::<f64>().ok()?;
+    if rate <= 0.0 {
+        return None;
+    }
+    Some((now / rate * 60.0) as u64)
 }
 
 /// Maps sysinfo components to the lean snapshot temperature list.
@@ -436,6 +563,8 @@ fn web_snapshot(
         sensors: SensorsInfo {
             temperatures: temperatures_of(components),
         },
+        listening: listening_ports(),
+        battery: battery_info(),
         // Filled in by `WebState::snapshot` from the rolling history.
         history: WebHistory {
             cpu: Vec::new(),
@@ -733,5 +862,42 @@ mod tests {
             "cpu usage out of range: {}",
             s.cpu.usage
         );
+    }
+
+    #[test]
+    fn listening_ports_are_sorted_and_deduped() {
+        let ports = listening_ports();
+        for w in ports.windows(2) {
+            assert!(
+                (w[0].port, &w[0].address) < (w[1].port, &w[1].address),
+                "not strictly sorted: {:?} then {:?}",
+                w[0].port,
+                w[1].port
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_proc_address_decodes_ipv4_and_ipv6() {
+        assert_eq!(
+            parse_proc_address("0100007F:0016"),
+            Some(("127.0.0.1".to_string(), 22))
+        );
+        assert_eq!(
+            parse_proc_address("00000000:1F90"),
+            Some(("0.0.0.0".to_string(), 8080))
+        );
+        // :: with port 443 (0x01BB).
+        assert_eq!(
+            parse_proc_address("00000000000000000000000000000000:01BB"),
+            Some(("::".to_string(), 443))
+        );
+        // Loopback ::1 in the kernel's little-endian word layout.
+        assert_eq!(
+            parse_proc_address("00000000000000000000000001000000:0050"),
+            Some(("::1".to_string(), 80))
+        );
+        assert_eq!(parse_proc_address("garbage"), None);
     }
 }

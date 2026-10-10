@@ -178,9 +178,34 @@ pub struct WebSnapshot {
     pub networks: Vec<WebNetworkInfo>,
     pub processes: Vec<WebProcessInfo>,
     pub sensors: SensorsInfo,
+    /// Sockets accepting connections (TCP `LISTEN`). Linux only; empty
+    /// elsewhere. Bounded by the kernel's socket table, so tiny.
+    pub listening: Vec<ListeningPort>,
+    /// Battery / power-supply summary, when the host has one (Linux).
+    pub battery: Option<BatteryInfo>,
     /// Rolling history maintained by the server so every client (and every
     /// reload) sees the same charts, not a history that starts from zero.
     pub history: WebHistory,
+}
+
+/// One socket accepting connections, parsed from `/proc/net`.
+#[derive(Serialize)]
+pub struct ListeningPort {
+    /// `"tcp"` or `"tcp6"`.
+    pub proto: String,
+    /// Local bind address, e.g. `"0.0.0.0"`, `"127.0.0.1"` or `"::"`.
+    pub address: String,
+    pub port: u16,
+}
+
+/// Battery / power-supply summary.
+#[derive(Serialize)]
+pub struct BatteryInfo {
+    /// Charge in percent, when the driver reports it.
+    pub percent: Option<f32>,
+    pub charging: bool,
+    /// Estimated minutes until empty, when the driver exposes a current rate.
+    pub minutes_left: Option<u64>,
 }
 
 /// Rolling per-metric history kept server-side. Indexed in time order; the

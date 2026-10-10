@@ -610,6 +610,14 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
     </table>
   </div>
 
+  <div class="panel" id="portsPanel" style="display:none;">
+    <h2>Listening ports &amp; power <span id="batteryLine" class="dim"></span></h2>
+    <table class="data" id="portsTable">
+      <thead><tr><th style="width:18%">proto</th><th style="width:62%">address</th><th style="width:20%">port</th></tr></thead>
+      <tbody id="portBody"></tbody>
+    </table>
+  </div>
+
   <div class="panel">
     <h2>
       Processes
@@ -1365,6 +1373,30 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
       }
     } else {
       $("sensorPanel").style.display = "none";
+    }
+
+    /* listening sockets (Linux) + battery, when the host reports either */
+    var ports = d.listening || [];
+    var batt = d.battery;
+    if (!ports.length && !batt) {
+      $("portsPanel").style.display = "none";
+    } else {
+      $("portsPanel").style.display = "";
+      var bl = $("batteryLine");
+      if (batt && batt.percent != null) {
+        bl.textContent = "battery " + Math.round(batt.percent) + "% " +
+          (batt.charging ? "charging" : "discharging") +
+          (batt.minutes_left ? " (~" + batt.minutes_left + " min left)" : "");
+      } else {
+        bl.textContent = "";
+      }
+      var ph = "";
+      for (i = 0; i < ports.length; i++) {
+        var po = ports[i];
+        ph += "<tr><td class='mono'>" + esc(po.proto) + "</td><td class='mono'>" +
+              esc(po.address) + "</td><td class='mono'>" + po.port + "</td></tr>";
+      }
+      $("portBody").innerHTML = ph;
     }
 
     /* processes */

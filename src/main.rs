@@ -115,6 +115,10 @@ pub enum Section {
     Vmstat,
     /// Temperatures and hardware sensors (if available)
     Sensors,
+    /// Listening TCP ports (Linux; reads /proc/net)
+    Ports,
+    /// Battery charge and status (Linux; reads /sys/class/power_supply)
+    Battery,
     /// Check live values against thresholds and exit non-zero on a breach
     /// (for cron, CI and monitoring probes)
     Check {
@@ -270,6 +274,14 @@ fn main() {
             run_check(cpu, mem, swap, disk, load, quiet, cli.json);
             return;
         }
+        Some(Section::Ports) => {
+            run_ports(cli.json);
+            return;
+        }
+        Some(Section::Battery) => {
+            run_battery(cli.json);
+            return;
+        }
         Some(Section::Serve {
             port,
             bind,
@@ -372,6 +384,8 @@ fn main() {
             emit(&data, |d| render::sensors(d, &opts), cli.json)
         }
         // Handled above (returns before this match runs).
+        Section::Ports => unreachable!("ports dispatch happens earlier"),
+        Section::Battery => unreachable!("battery dispatch happens earlier"),
         Section::Check { .. } => unreachable!("check dispatch happens earlier"),
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
         Section::Key { .. } => unreachable!("key dispatch happens earlier"),
@@ -695,6 +709,57 @@ fn run_check(
 fn fail(msg: &str) -> ! {
     eprintln!("{msg}");
     std::process::exit(1);
+}
+
+/// `sysview ports`: list TCP sockets that are accepting connections.
+fn run_ports(json: bool) {
+    let ports = collect::listening_ports();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ports).unwrap_or_default()
+        );
+        return;
+    }
+    if ports.is_empty() {
+        println!("no listening TCP sockets found (port listing is Linux-only)");
+        return;
+    }
+    println!("{:<6} {:<40} PORT", "PROTO", "ADDRESS");
+    for p in &ports {
+        println!("{:<6} {:<40} {}", p.proto, p.address, p.port);
+    }
+}
+
+/// `sysview battery`: charge and power state from `/sys/class/power_supply`.
+fn run_battery(json: bool) {
+    let info = collect::battery_info();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&info).unwrap_or_default()
+        );
+        return;
+    }
+    match info {
+        Some(b) => {
+            let pct = b
+                .percent
+                .map(|p| format!("{p:.0}%"))
+                .unwrap_or_else(|| "unknown".to_string());
+            let state = if b.charging {
+                "charging"
+            } else {
+                "discharging"
+            };
+            let left = b
+                .minutes_left
+                .map(|m| format!("  ~{m} min left"))
+                .unwrap_or_default();
+            println!("battery: {pct}  {state}{left}");
+        }
+        None => println!("no battery detected (battery reporting is Linux-only)"),
+    }
 }
 
 /// Adapts stdout for the CLI `--color` choice: `auto` enables VT processing
