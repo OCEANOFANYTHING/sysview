@@ -273,26 +273,75 @@ fn resolve(base: &str, location: &str) -> String {
 }
 
 fn fetch_once(url: &str, timeout: Duration) -> Result<HttpResponse, String> {
+    request_once(url, "GET", None, &[], timeout)
+}
+
+/// Posts a body to a webhook URL. Follows redirects the same way the updater
+/// does; a 2xx is success, anything else is an error carrying the status.
+pub fn post_webhook(url: &str, content_type: &str, body: &[u8]) -> Result<(), String> {
+    let timeout = Duration::from_secs(10);
+    let mut url = url.to_string();
+    for _ in 0..=MAX_REDIRECTS {
+        let resp = request_once(&url, "POST", Some(content_type), body, timeout)?;
+        if (300..400).contains(&resp.status) {
+            match resp.header("location") {
+                Some(loc) => {
+                    url = resolve(&url, loc);
+                    continue;
+                }
+                None => return Err(format!("HTTP {} from {url}", resp.status)),
+            }
+        }
+        return if (200..300).contains(&resp.status) {
+            Ok(())
+        } else {
+            Err(format!("HTTP {} from {url}", resp.status))
+        };
+    }
+    Err("too many redirects".to_string())
+}
+
+/// Minimal HTTP/1.1 request over TLS (or plain HTTP). Only what GitHub and
+/// webhooks need: `Content-Length` and chunked bodies, and a few redirects.
+fn request_once(
+    url: &str,
+    method: &str,
+    content_type: Option<&str>,
+    body: &[u8],
+    timeout: Duration,
+) -> Result<HttpResponse, String> {
     let u = parse_url(url)?;
     let host_header = if (u.https && u.port == 443) || (!u.https && u.port == 80) {
         u.host.clone()
     } else {
         format!("{}:{}", u.host, u.port)
     };
-    let mut request = String::with_capacity(256);
-    request.push_str("GET ");
+    let mut request = String::with_capacity(320);
+    request.push_str(method);
+    request.push(' ');
     request.push_str(&u.path);
     request.push_str(" HTTP/1.1\r\nHost: ");
     request.push_str(&host_header);
     request.push_str("\r\nUser-Agent: sysview/");
     request.push_str(env!("CARGO_PKG_VERSION"));
-    request.push_str("\r\nAccept: application/vnd.github+json\r\n");
-    request.push_str("Accept-Encoding: identity\r\nConnection: close\r\n");
-    if let Ok(tok) = env::var("GITHUB_TOKEN")
-        && !tok.trim().is_empty()
-    {
-        request.push_str("Authorization: Bearer ");
-        request.push_str(tok.trim());
+    request.push_str("\r\nAccept-Encoding: identity\r\nConnection: close\r\n");
+    if method == "GET" {
+        request.push_str("Accept: application/vnd.github+json\r\n");
+        if let Ok(tok) = env::var("GITHUB_TOKEN")
+            && !tok.trim().is_empty()
+        {
+            request.push_str("Authorization: Bearer ");
+            request.push_str(tok.trim());
+            request.push_str("\r\n");
+        }
+    } else {
+        if let Some(ct) = content_type {
+            request.push_str("Content-Type: ");
+            request.push_str(ct);
+            request.push_str("\r\n");
+        }
+        request.push_str("Content-Length: ");
+        request.push_str(&body.len().to_string());
         request.push_str("\r\n");
     }
     request.push_str("\r\n");
@@ -330,11 +379,13 @@ fn fetch_once(url: &str, timeout: Duration) -> Result<HttpResponse, String> {
             .map_err(|e| format!("TLS setup failed: {e}"))?;
         let mut tls = rustls::StreamOwned::new(conn, sock);
         tls.write_all(request.as_bytes())
+            .and_then(|()| tls.write_all(body))
             .map_err(|e| format!("TLS write failed: {e}"))?;
         tls.flush().map_err(|e| format!("TLS flush failed: {e}"))?;
         read_all(&mut tls)?
     } else {
         sock.write_all(request.as_bytes())
+            .and_then(|()| sock.write_all(body))
             .map_err(|e| format!("write failed: {e}"))?;
         sock.flush().map_err(|e| format!("flush failed: {e}"))?;
         read_all(&mut sock)?

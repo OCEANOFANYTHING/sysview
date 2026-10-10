@@ -52,7 +52,7 @@ use serde_json::json;
 
 use crate::collect::{HISTORY_MAX, WebState};
 use crate::keys::{self, KeyStore};
-use crate::model::{MemoryInfo, WebDiskInfo, WebHistory, WebNetworkInfo};
+use crate::model::{MemoryInfo, WebDiskInfo, WebHistory, WebNetworkInfo, WebSnapshot};
 use crate::settings::Settings;
 use crate::{iface, update};
 
@@ -141,6 +141,41 @@ pub struct ServeConfig {
     /// Where dashboard-edited settings persist. `None` disables persistence
     /// (used by tests).
     pub settings_path: Option<PathBuf>,
+    /// Threshold alerts + webhook. Disabled by default; when enabled the
+    /// sampler also runs while idle so alerts fire with no viewer connected.
+    pub alerts: AlertConfig,
+}
+
+/// Threshold alerts. `enabled()` is true only when a webhook and at least one
+/// threshold are set; otherwise nothing changes.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct AlertConfig {
+    pub cpu: Option<f64>,
+    pub mem: Option<f64>,
+    pub swap: Option<f64>,
+    pub load: Option<f64>,
+    /// `(mount, percent)`; a mount of `*` means "the fullest mounted volume".
+    pub disks: Vec<(String, f64)>,
+    pub webhook: Option<String>,
+    /// Minimum seconds between repeats of the same firing alert.
+    pub cooldown: u64,
+}
+
+impl AlertConfig {
+    pub fn enabled(&self) -> bool {
+        self.webhook
+            .as_deref()
+            .is_some_and(|w| !w.trim().is_empty())
+            && (self.cpu.is_some()
+                || self.mem.is_some()
+                || self.swap.is_some()
+                || self.load.is_some()
+                || !self.disks.is_empty())
+    }
+
+    fn cooldown(&self) -> Duration {
+        Duration::from_secs(self.cooldown.clamp(5, 86_400))
+    }
 }
 
 impl Default for ServeConfig {
@@ -155,6 +190,7 @@ impl Default for ServeConfig {
             interface: None,
             store: None,
             settings_path: None,
+            alerts: AlertConfig::default(),
         }
     }
 }
@@ -450,7 +486,12 @@ impl Server {
             rejected: AtomicUsize::new(0),
         });
         let stop = Arc::new(AtomicBool::new(false));
-        start_sampler(Arc::clone(&shared), timeouts.idle_grace, Arc::clone(&stop));
+        start_sampler(
+            Arc::clone(&shared),
+            timeouts.idle_grace,
+            Arc::clone(&stop),
+            cfg.alerts.clone(),
+        );
         // Wait until the first payload is ready so the very first client never
         // sees an empty "warming up" response.
         for _ in 0..400 {
@@ -582,6 +623,175 @@ fn build_store(cfg: &ServeConfig) -> Arc<KeyStore> {
     Arc::new(KeyStore::new(crate::paths::keys_file(), env))
 }
 
+/// Stack size for the transient per-alert webhook thread. A POST is a handful
+/// of syscalls and a small JSON body, so 128 KiB is generous; it keeps a fired
+/// alert's worst-case commit tiny.
+const ALERT_STACK_SIZE: usize = 128 * 1024;
+
+/// One configured alert threshold, owned by the sampler thread.
+struct AlertRule {
+    metric: AlertMetric,
+    limit: f64,
+    /// Human label used in the webhook message (e.g. `cpu`, `disk /`).
+    label: String,
+    firing: bool,
+    last: Instant,
+}
+
+enum AlertMetric {
+    Cpu,
+    Mem,
+    Swap,
+    Load,
+    /// Mount point, or `*` for the fullest volume.
+    Disk(String),
+}
+
+fn push_rule(
+    rules: &mut Vec<AlertRule>,
+    metric: AlertMetric,
+    limit: f64,
+    label: String,
+    now: Instant,
+) {
+    rules.push(AlertRule {
+        metric,
+        limit,
+        label,
+        firing: false,
+        last: now,
+    });
+}
+
+/// Builds the sampler's alert rules. Empty when no thresholds are set.
+fn build_alert_rules(cfg: &AlertConfig) -> Vec<AlertRule> {
+    let now = Instant::now();
+    let mut rules = Vec::new();
+    if let Some(v) = cfg.cpu {
+        push_rule(&mut rules, AlertMetric::Cpu, v, "cpu".into(), now);
+    }
+    if let Some(v) = cfg.mem {
+        push_rule(&mut rules, AlertMetric::Mem, v, "mem".into(), now);
+    }
+    if let Some(v) = cfg.swap {
+        push_rule(&mut rules, AlertMetric::Swap, v, "swap".into(), now);
+    }
+    if let Some(v) = cfg.load {
+        push_rule(&mut rules, AlertMetric::Load, v, "load".into(), now);
+    }
+    for (mount, pct) in &cfg.disks {
+        let label = if mount == "*" {
+            "disk (fullest)".to_string()
+        } else {
+            format!("disk {mount}")
+        };
+        push_rule(
+            &mut rules,
+            AlertMetric::Disk(mount.clone()),
+            *pct,
+            label,
+            now,
+        );
+    }
+    rules
+}
+
+/// The value an alert rule watches, read straight out of the sampled snapshot
+/// (no extra allocation). `None` when the metric is unavailable on this host
+/// (e.g. load average on Windows).
+fn metric_value(metric: &AlertMetric, snap: &WebSnapshot) -> Option<f64> {
+    match metric {
+        AlertMetric::Cpu => Some(snap.cpu.usage as f64),
+        AlertMetric::Mem => Some(snap.memory.used_percent as f64),
+        AlertMetric::Swap => Some(swap_percent(&snap.memory) as f64),
+        AlertMetric::Load => snap.system.load_average.as_ref().map(|l| l.one),
+        AlertMetric::Disk(m) if m == "*" => snap
+            .disks
+            .iter()
+            .map(|d| disk_used_percent(d) as f64)
+            .fold(None, |acc: Option<f64>, v| {
+                Some(acc.map_or(v, |a| a.max(v)))
+            }),
+        AlertMetric::Disk(m) => snap
+            .disks
+            .iter()
+            .find(|d| &d.mount_point == m)
+            .map(|d| disk_used_percent(d) as f64),
+    }
+}
+
+/// Evaluates every threshold and fires a webhook on each state change
+/// (crossing up, periodic reminder while still firing, and recovery). Runs on
+/// the sampler thread; the actual POST happens on a short-lived detached
+/// thread so a slow endpoint never stalls sampling.
+fn evaluate_alerts(cfg: &AlertConfig, rules: &mut [AlertRule], snap: &WebSnapshot, host: &str) {
+    let now = Instant::now();
+    let cooldown = cfg.cooldown();
+    for rule in rules.iter_mut() {
+        let Some(value) = metric_value(&rule.metric, snap) else {
+            continue;
+        };
+        let firing_now = value >= rule.limit;
+        if firing_now {
+            let due = !rule.firing || now.duration_since(rule.last) >= cooldown;
+            if due {
+                fire_alert(
+                    cfg,
+                    format!(
+                        "[sysview] {host}: {} at {value:.1} ( >= {:.1} )",
+                        rule.label, rule.limit
+                    ),
+                );
+                rule.firing = true;
+                rule.last = now;
+            }
+        } else if rule.firing {
+            fire_alert(
+                cfg,
+                format!(
+                    "[sysview] {host}: {} recovered, {value:.1} ( < {:.1} )",
+                    rule.label, rule.limit
+                ),
+            );
+            rule.firing = false;
+        }
+    }
+}
+
+/// Spawns the webhook POST for one alert message. A no-op without a webhook.
+fn fire_alert(cfg: &AlertConfig, msg: String) {
+    let Some(url) = cfg.webhook.clone().filter(|w| !w.trim().is_empty()) else {
+        return;
+    };
+    let _ = thread::Builder::new()
+        .name("alert".to_string())
+        .stack_size(ALERT_STACK_SIZE)
+        .spawn(move || {
+            let (ctype, body) = webhook_payload(&url, &msg);
+            if let Err(e) = update::post_webhook(&url, ctype, body.as_bytes()) {
+                eprintln!("sysview alert: {e}");
+            }
+        });
+}
+
+/// Chooses a webhook body by destination. ntfy takes a raw message, Slack and
+/// Discord want their own JSON shape, and anything else gets generic JSON.
+fn webhook_payload(url: &str, msg: &str) -> (&'static str, String) {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("discord") {
+        ("application/json", json!({ "content": msg }).to_string())
+    } else if lower.contains("slack") {
+        ("application/json", json!({ "text": msg }).to_string())
+    } else if lower.contains("ntfy") {
+        ("text/plain; charset=utf-8", msg.to_string())
+    } else {
+        (
+            "application/json",
+            json!({ "text": msg, "source": "sysview" }).to_string(),
+        )
+    }
+}
+
 /// Background sampler: the single writer of `WebState`.
 ///
 /// Runs continuously but only *samples* while a dashboard is connected, plus
@@ -594,6 +804,7 @@ fn start_sampler(
     shared: Arc<Shared>,
     idle_grace: Duration,
     stop: Arc<AtomicBool>,
+    alerts: AlertConfig,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("sampler".to_string())
@@ -602,6 +813,12 @@ fn start_sampler(
             let mut st: Option<WebState> = None;
             let mut last_mp = 0usize;
             let mut ring = HistoryRing::new();
+            let mut rules = build_alert_rules(&alerts);
+            // With alerts configured the sampler must keep running even with no
+            // viewer, or a threshold crossed overnight would never fire. This is
+            // the documented cost of alerts: the server holds the same state one
+            // open dashboard would.
+            let alerts_on = alerts.enabled();
             loop {
                 if stop.load(Ordering::Relaxed) {
                     break;
@@ -614,7 +831,9 @@ fn start_sampler(
                     Ok(g) => *g,
                     Err(p) => *p.into_inner(),
                 };
-                let active = active_conns > 0 || last_conn.elapsed() <= idle_grace;
+                // Idle gating: sample while someone is watching, or always when
+                // alerts are on.
+                let active = alerts_on || active_conns > 0 || last_conn.elapsed() <= idle_grace;
 
                 if active {
                     // (Re)build sampling state on the first tick after idle, and
@@ -640,6 +859,10 @@ fn start_sampler(
                         ring.push_disk(&d.mount_point, disk_used_percent(d));
                     }
                     snap.history = ring.to_web();
+                    if alerts_on {
+                        let host = snap.system.hostname.as_deref().unwrap_or("host");
+                        evaluate_alerts(&alerts, &mut rules, &snap, host);
+                    }
                     // Serialize into the cached payload's own allocation: take it,
                     // clear it (capacity is preserved), write in place, put it
                     // back. Each tick performs zero heap allocations and exactly
@@ -2520,6 +2743,7 @@ mod tests {
     /// scope and throttle paths can be exercised with more than one key.
     fn start_test_server_with_store(
         store: Arc<KeyStore>,
+        alerts: AlertConfig,
     ) -> (
         SocketAddr,
         Arc<Server>,
@@ -2534,6 +2758,7 @@ mod tests {
             interval_secs: 0.05,
             max_procs: 20,
             store: Some(store),
+            alerts,
             ..ServeConfig::default()
         };
         let server = Arc::new(
@@ -2583,7 +2808,8 @@ mod tests {
     #[test]
     fn view_keys_read_but_cannot_administer() {
         let store = scoped_store();
-        let (addr, server, stop, handle) = start_test_server_with_store(store);
+        let (addr, server, stop, handle) =
+            start_test_server_with_store(store, AlertConfig::default());
         wait_for_payload(addr, &server, Some("admintok"), "first payload");
 
         // Read routes work for both scopes; /health needs no key at all.
@@ -2621,7 +2847,8 @@ mod tests {
     #[test]
     fn bad_tokens_are_throttled_but_a_good_one_still_works() {
         let store = scoped_store();
-        let (addr, server, stop, handle) = start_test_server_with_store(store);
+        let (addr, server, stop, handle) =
+            start_test_server_with_store(store, AlertConfig::default());
         wait_for_payload(addr, &server, Some("admintok"), "first payload");
 
         // Spend the failed-auth budget from this IP.
@@ -2648,6 +2875,77 @@ mod tests {
 
         stop.store(true, Ordering::Relaxed);
         let _ = handle.join();
+    }
+
+    #[test]
+    fn webhook_payload_matches_the_destination() {
+        let (ct, body) = webhook_payload("https://discord.com/api/webhooks/x/y", "hi");
+        assert_eq!(ct, "application/json");
+        assert_eq!(body, r#"{"content":"hi"}"#);
+
+        let (ct, body) = webhook_payload("https://hooks.slack.com/services/T/B/X", "hi");
+        assert_eq!(ct, "application/json");
+        assert_eq!(body, r#"{"text":"hi"}"#);
+
+        let (ct, body) = webhook_payload("https://ntfy.sh/sysview-topic", "hi");
+        assert_eq!(ct, "text/plain; charset=utf-8");
+        assert_eq!(body, "hi");
+
+        let (ct, body) = webhook_payload("https://example.com/hook", "hi");
+        assert_eq!(ct, "application/json");
+        assert_eq!(body, r#"{"source":"sysview","text":"hi"}"#);
+    }
+
+    #[test]
+    fn alerts_post_to_the_webhook_on_crossing() {
+        // A stand-in webhook endpoint: accepts one POST and hands the request
+        // text back over a channel.
+        let hook = TcpListener::bind(("127.0.0.1", 0)).expect("bind hook");
+        let hook_addr = hook.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let hook_thread = thread::spawn(move || {
+            if let Ok((mut s, _)) = hook.accept() {
+                let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut buf = [0u8; 4096];
+                let mut got = Vec::new();
+                while let Ok(n) = s.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    got.extend_from_slice(&buf[..n]);
+                    if got.len() >= 4096 {
+                        break;
+                    }
+                }
+                let _ = s.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+                let _ = tx.send(String::from_utf8_lossy(&got).into_owned());
+            }
+        });
+
+        // cpu >= 0.0 always fires, so a sample (and a POST) happens immediately.
+        let store = scoped_store();
+        let (addr, server, stop, handle) = start_test_server_with_store(
+            store,
+            AlertConfig {
+                cpu: Some(0.0),
+                webhook: Some(format!("http://{hook_addr}/hook")),
+                cooldown: 5,
+                ..AlertConfig::default()
+            },
+        );
+        wait_for_payload(addr, &server, Some("admintok"), "first payload");
+
+        let got = rx
+            .recv_timeout(Duration::from_secs(15))
+            .expect("webhook received");
+        assert!(got.contains("POST /hook"), "request was: {got}");
+        assert!(got.contains("sysview"), "request was: {got}");
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+        let _ = hook_thread.join();
     }
 
     fn tcp_connect(addr: SocketAddr) -> TcpStream {

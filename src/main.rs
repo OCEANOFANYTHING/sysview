@@ -156,6 +156,28 @@ pub enum Section {
         /// Start in kiosk mode (full screen, minimal chrome)
         #[arg(long)]
         kiosk: bool,
+        /// Alert when CPU usage reaches this percent
+        #[arg(long, value_name = "PCT")]
+        alert_cpu: Option<f64>,
+        /// Alert when memory usage reaches this percent
+        #[arg(long, value_name = "PCT")]
+        alert_mem: Option<f64>,
+        /// Alert when swap usage reaches this percent
+        #[arg(long, value_name = "PCT")]
+        alert_swap: Option<f64>,
+        /// Alert when the 1-minute load average reaches this value
+        #[arg(long, value_name = "N")]
+        alert_load: Option<f64>,
+        /// Alert when a mount reaches this percent, as MOUNT:PCT. Use `*` for
+        /// the fullest mount. Repeatable: --alert-disk /:90 --alert-disk '*:95'
+        #[arg(long, value_name = "MOUNT:PCT")]
+        alert_disk: Vec<String>,
+        /// Webhook URL to POST alerts to (ntfy, Slack, Discord or generic)
+        #[arg(long)]
+        alert_webhook: Option<String>,
+        /// Minimum seconds between repeats of the same alert
+        #[arg(long, default_value_t = 300)]
+        alert_cooldown: u64,
     },
     /// Manage dashboard access keys (add, remove, expiry)
     Key {
@@ -245,8 +267,33 @@ fn main() {
             max_procs,
             token,
             kiosk,
+            alert_cpu,
+            alert_mem,
+            alert_swap,
+            alert_load,
+            alert_disk,
+            alert_webhook,
+            alert_cooldown,
         }) => {
-            run_serve(cli.interval, port, bind, interface, max_procs, token, kiosk);
+            let alerts = serve::AlertConfig {
+                cpu: alert_cpu,
+                mem: alert_mem,
+                swap: alert_swap,
+                load: alert_load,
+                disks: parse_alert_disks(&alert_disk),
+                webhook: alert_webhook,
+                cooldown: alert_cooldown,
+            };
+            run_serve(
+                cli.interval,
+                port,
+                bind,
+                interface,
+                max_procs,
+                token,
+                kiosk,
+                alerts,
+            );
             return;
         }
         Some(Section::Key { cmd }) => {
@@ -316,9 +363,31 @@ fn main() {
     let _ = writeln!(out, "{output}");
 }
 
+/// Parses `--alert-disk MOUNT:PCT` entries. `*` matches the fullest volume;
+/// the split is on the last colon so Windows mounts like `C:\` work too.
+fn parse_alert_disks(specs: &[String]) -> Vec<(String, f64)> {
+    let bad = |s: &str| -> ! {
+        fail(&format!(
+            "sysview serve: bad --alert-disk '{s}' (want MOUNT:PCT, e.g. /:90)"
+        ))
+    };
+    let mut out = Vec::new();
+    for s in specs {
+        match s.rsplit_once(':') {
+            Some((mount, pct)) if !mount.trim().is_empty() => match pct.trim().parse::<f64>() {
+                Ok(v) => out.push((mount.trim().to_string(), v)),
+                Err(_) => bad(s),
+            },
+            _ => bad(s),
+        }
+    }
+    out
+}
+
 /// Resolves the effective serve config (CLI > saved settings > defaults),
 /// turning `--interface`/a saved interface into a bind address, then runs the
 /// dashboard to completion.
+#[allow(clippy::too_many_arguments)]
 fn run_serve(
     interval_flag: f64,
     port: Option<u16>,
@@ -327,6 +396,7 @@ fn run_serve(
     max_procs: Option<usize>,
     token: Option<String>,
     kiosk: bool,
+    alerts: serve::AlertConfig,
 ) {
     let settings_path = paths::settings_file();
     let stored = settings::Settings::load(&settings_path);
@@ -361,6 +431,7 @@ fn run_serve(
         interface,
         store: None,
         settings_path: Some(settings_path),
+        alerts,
     };
     if let Err(e) = serve::run(cfg) {
         eprintln!("sysview serve: {e}");
