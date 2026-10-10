@@ -13,6 +13,9 @@ on:
   push:
     tags:
       - "v*"
+  # Manual runs build the artifacts (and upload them) without publishing a
+  # release; the publish job only runs for tag pushes.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -41,8 +44,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
-      # The bundled HTTPS client (rustls/aws-lc-sys) compiles a little C, so the
-      # musl target needs a musl C compiler (cc-rs auto-selects musl-gcc).
+      # The bundled HTTPS client (rustls with the compact ring provider)
+      # compiles a little C/asm, so the musl target needs a musl C compiler
+      # (cc-rs auto-selects musl-gcc).
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --target x86_64-unknown-linux-musl
       - run: cp target/x86_64-unknown-linux-musl/release/sysview sysview-linux-x86_64-musl
@@ -83,6 +87,9 @@ jobs:
 
   release:
     needs: [build-linux, build-windows, build-macos]
+    # Only publish a real release for tag pushes; manual runs just build
+    # artifacts for testing.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

@@ -1,6 +1,6 @@
 [package]
 name = "sysview"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Portable one-shot system stats viewer for Windows, Linux and macOS"
 license = "MIT"
@@ -8,14 +8,19 @@ license = "MIT"
 [dependencies]
 anstream = "1.0.0"
 clap = { version = "4.6.7", features = ["derive"] }
-minreq = { version = "3.0.0", features = ["https-rustls"] }
+# Bundled HTTPS client for `sysview update`: rustls with the compact `ring`
+# provider (much smaller than the default aws-lc-rs, which pulled in a full
+# BoringSSL build and added ~3 MB to the static binary).
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 sysinfo = "0.39.6"
+webpki-roots = "1.0.0"
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+opt-level = "z"
