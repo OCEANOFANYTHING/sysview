@@ -128,6 +128,33 @@ pub struct SensorsInfo {
     pub temperatures: Vec<TemperatureInfo>,
 }
 
+/// One threshold comparison from `sysview check`. `ok` is `value < limit`.
+#[derive(Serialize)]
+pub struct CheckItem {
+    pub name: String,
+    pub value: f64,
+    pub limit: f64,
+    pub ok: bool,
+}
+
+impl CheckItem {
+    pub fn new(name: impl Into<String>, value: f64, limit: f64) -> Self {
+        Self {
+            name: name.into(),
+            value,
+            limit,
+            ok: value < limit,
+        }
+    }
+}
+
+/// Result of `sysview check` (rendered as JSON with `--json`).
+#[derive(Serialize)]
+pub struct CheckReport {
+    pub ok: bool,
+    pub checks: Vec<CheckItem>,
+}
+
 #[derive(Serialize)]
 pub struct TemperatureInfo {
     pub label: String,

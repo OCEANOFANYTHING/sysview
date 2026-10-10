@@ -156,6 +156,66 @@ pub fn sensors() -> SensorsInfo {
     }
 }
 
+/// The handful of live values `sysview check` compares against thresholds.
+/// Sampled one-shot into a throwaway `System`, so nothing is retained.
+pub struct CheckMetrics {
+    pub cpu_percent: f64,
+    pub mem_percent: f64,
+    pub swap_percent: f64,
+    /// 1-minute load average; `None` on Windows (not implemented there).
+    pub load_one: Option<f64>,
+    /// `(mount point, used percent)` for every non-zero-size volume.
+    pub disks: Vec<(String, f64)>,
+}
+
+/// Samples the values compared by `sysview check`. Deliberately lean: it warms
+/// CPU (two samples) and reads memory + disks, never the process table.
+pub fn check_metrics() -> CheckMetrics {
+    let mut sys = System::new();
+    sample_cpu(&mut sys);
+    sys.refresh_memory();
+
+    let disks = Disks::new_with_refreshed_list();
+    let disks = disks
+        .list()
+        .iter()
+        .filter_map(|d| {
+            let total = d.total_space();
+            if total == 0 {
+                return None;
+            }
+            let used = total.saturating_sub(d.available_space());
+            Some((
+                d.mount_point().to_string_lossy().into_owned(),
+                used as f64 * 100.0 / total as f64,
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    #[cfg(unix)]
+    let load_one = Some(System::load_average().one);
+    #[cfg(not(unix))]
+    let load_one = None;
+
+    let total_mem = sys.total_memory();
+    let total_swap = sys.total_swap();
+    CheckMetrics {
+        cpu_percent: sys.global_cpu_usage() as f64,
+        mem_percent: if total_mem == 0 {
+            0.0
+        } else {
+            sys.used_memory() as f64 * 100.0 / total_mem as f64
+        },
+        swap_percent: if total_swap == 0 {
+            0.0
+        } else {
+            sys.used_swap() as f64 * 100.0 / total_swap as f64
+        },
+        load_one,
+        disks,
+    }
+}
+
 /// Maps sysinfo components to the lean snapshot temperature list.
 fn temperatures_of(components: &Components) -> Vec<TemperatureInfo> {
     let mut temperatures: Vec<TemperatureInfo> = components

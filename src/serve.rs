@@ -1271,11 +1271,26 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
                 }
             }
             ("GET" | "HEAD", "/health") => {
+                // Liveness probe with a little more signal for orchestrators
+                // and Uptime-Kuma: version, uptime and whether the sampler is
+                // currently live. It deliberately never calls `mark_watching`,
+                // so scripted probes never keep a sleeping server awake.
+                let sampling = shared
+                    .latest
+                    .lock()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
+                let body = format!(
+                    "{{\"ok\":true,\"status\":\"ok\",\"version\":\"{}\",\"uptime_secs\":{},\"sampling\":{}}}",
+                    env!("CARGO_PKG_VERSION"),
+                    sysinfo::System::uptime(),
+                    sampling,
+                );
                 respond(
                     &mut stream,
                     "200 OK",
                     "application/json; charset=utf-8",
-                    b"{\"ok\":true}",
+                    body.as_bytes(),
                     method == "HEAD",
                     keep,
                 );
@@ -2745,7 +2760,9 @@ mod tests {
         for _ in 0..3 {
             let r = http_get(addr, "/health");
             assert_eq!(r.status, 200);
-            assert_eq!(r.body, b"{\"ok\":true}");
+            let body = String::from_utf8_lossy(&r.body);
+            assert!(body.contains("\"ok\":true"), "{body}");
+            assert!(body.contains("\"version\":\""), "{body}");
         }
 
         // ...then the server goes idle...
@@ -2759,7 +2776,11 @@ mod tests {
         // ...and health probes must NOT re-arm it.
         let r = http_get(addr, "/health");
         assert_eq!(r.status, 200);
-        assert_eq!(r.body, b"{\"ok\":true}");
+        assert!(
+            String::from_utf8_lossy(&r.body).contains("\"ok\":true"),
+            "{}",
+            String::from_utf8_lossy(&r.body)
+        );
         // Health checks never mark the server as watched, so it must stay
         // idle. A tick landing inside the probe may briefly rebuild the state;
         // wait (with a cap) for the sampler to drop again rather than relying
@@ -3045,7 +3066,11 @@ mod tests {
         let r1 = reader.next();
         assert_eq!(r1.status, 200);
         assert_eq!(r1.header("connection"), Some("keep-alive"));
-        assert_eq!(r1.body, b"{\"ok\":true}");
+        assert!(
+            String::from_utf8_lossy(&r1.body).contains("\"ok\":true"),
+            "{}",
+            String::from_utf8_lossy(&r1.body)
+        );
         let r2 = reader.next();
         assert_eq!(r2.status, 200);
         assert!(r2.body.windows(8).any(|w| w == &b"sysview_"[..]));

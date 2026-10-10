@@ -114,6 +114,28 @@ pub enum Section {
     Vmstat,
     /// Temperatures and hardware sensors (if available)
     Sensors,
+    /// Check live values against thresholds and exit non-zero on a breach
+    /// (for cron, CI and monitoring probes)
+    Check {
+        /// Breach when CPU usage reaches this percent
+        #[arg(long)]
+        cpu: Option<f64>,
+        /// Breach when memory usage reaches this percent
+        #[arg(long)]
+        mem: Option<f64>,
+        /// Breach when swap usage reaches this percent
+        #[arg(long)]
+        swap: Option<f64>,
+        /// Breach when any mounted volume reaches this percent
+        #[arg(long)]
+        disk: Option<f64>,
+        /// Breach when the 1-minute load average reaches this value
+        #[arg(long)]
+        load: Option<f64>,
+        /// Print only failing checks
+        #[arg(long)]
+        quiet: bool,
+    },
     /// Serve the embedded web dashboard (headless remote monitoring)
     Serve {
         /// HTTP port to listen on
@@ -192,8 +214,19 @@ fn main() {
     // whatever path this invocation takes (serve included).
     update::cleanup_old_binary();
 
-    // Subcommands that run to completion on their own (serve / key / update).
+    // Subcommands that run to completion on their own (check / serve / key / update).
     match cli.section.clone() {
+        Some(Section::Check {
+            cpu,
+            mem,
+            swap,
+            disk,
+            load,
+            quiet,
+        }) => {
+            run_check(cpu, mem, swap, disk, load, quiet, cli.json);
+            return;
+        }
         Some(Section::Serve {
             port,
             bind,
@@ -262,6 +295,7 @@ fn main() {
             emit(&data, |d| render::sensors(d, &opts), cli.json)
         }
         // Handled above (returns before this match runs).
+        Section::Check { .. } => unreachable!("check dispatch happens earlier"),
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
         Section::Key { .. } => unreachable!("key dispatch happens earlier"),
         Section::Update { .. } => unreachable!("update dispatch happens earlier"),
@@ -460,6 +494,67 @@ fn run_update(check: bool, force: bool) {
         }
         Err(e) => fail(&format!("sysview update: {e}")),
     }
+}
+
+/// `sysview check …`: compares live values against thresholds and exits `0`
+/// when every check passes, `1` on any breach. One line per check (or JSON
+/// with `--json`), so it drops straight into cron, CI and monitoring probes.
+fn run_check(
+    cpu: Option<f64>,
+    mem: Option<f64>,
+    swap: Option<f64>,
+    disk: Option<f64>,
+    load: Option<f64>,
+    quiet: bool,
+    json: bool,
+) {
+    let m = collect::check_metrics();
+    let mut items: Vec<model::CheckItem> = Vec::new();
+    if let Some(limit) = cpu {
+        items.push(model::CheckItem::new("cpu", m.cpu_percent, limit));
+    }
+    if let Some(limit) = mem {
+        items.push(model::CheckItem::new("mem", m.mem_percent, limit));
+    }
+    if let Some(limit) = swap {
+        items.push(model::CheckItem::new("swap", m.swap_percent, limit));
+    }
+    if let Some(limit) = load
+        && let Some(l) = m.load_one
+    {
+        items.push(model::CheckItem::new("load1", l, limit));
+    }
+    if let Some(limit) = disk {
+        for (mount, pct) in &m.disks {
+            items.push(model::CheckItem::new(format!("disk {mount}"), *pct, limit));
+        }
+    }
+
+    let ok = items.iter().all(|i| i.ok);
+    if json {
+        let report = model::CheckReport { ok, checks: items };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).unwrap_or_default()
+        );
+    } else if items.is_empty() {
+        println!("no thresholds given; pass --cpu/--mem/--swap/--disk/--load");
+    } else {
+        for i in &items {
+            if quiet && i.ok {
+                continue;
+            }
+            println!(
+                "{:<4} {:<24} {:>7.1}%  limit {:>6.1}%{}",
+                if i.ok { "ok" } else { "FAIL" },
+                i.name,
+                i.value,
+                i.limit,
+                if i.ok { "" } else { "  <-- BREACH" }
+            );
+        }
+    }
+    std::process::exit(if ok { 0 } else { 1 });
 }
 
 fn fail(msg: &str) -> ! {
