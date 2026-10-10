@@ -22,6 +22,35 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+/// What a key is allowed to do. `Admin` (the default, and what every key made
+/// before scopes existed is) can change settings, manage keys and run updates;
+/// `View` is read-only — the right level for a wall display or a phone.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    #[default]
+    Admin,
+    View,
+}
+
+impl Scope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scope::Admin => "admin",
+            Scope::View => "view",
+        }
+    }
+
+    /// Parses a scope name (accepts common synonyms). Errors on anything else.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "admin" | "rw" | "write" => Ok(Scope::Admin),
+            "view" | "ro" | "read" | "readonly" => Ok(Scope::View),
+            other => Err(format!("unknown scope '{other}' (use admin or view)")),
+        }
+    }
+}
+
 /// One access key. `expires == 0` means "never expires".
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Key {
@@ -31,6 +60,10 @@ pub struct Key {
     /// Unix seconds; `0` = never.
     #[serde(default)]
     pub expires: u64,
+    /// Access level. Defaults to `admin` so keys written before scopes existed
+    /// (and every `SYSVIEW_TOKEN`) keep full access.
+    #[serde(default)]
+    pub scope: Scope,
 }
 
 impl Key {
@@ -90,22 +123,29 @@ impl KeyStore {
         self.env.iter().any(|k| !k.expired(now)) || self.file_keys().iter().any(|k| !k.expired(now))
     }
 
-    /// Validates a presented token against every unexpired key.
-    pub fn validate(&self, token: &str, now: u64) -> bool {
+    /// Validates a presented token and returns the matching key's scope.
+    /// `None` means no unexpired key matched.
+    pub fn authorize(&self, token: &str, now: u64) -> Option<Scope> {
         if token.is_empty() {
-            return false;
+            return None;
         }
         for k in &self.env {
             if !k.expired(now) && ct_eq(token, &k.token) {
-                return true;
+                return Some(k.scope);
             }
         }
         for k in self.file_keys().iter() {
             if !k.expired(now) && ct_eq(token, &k.token) {
-                return true;
+                return Some(k.scope);
             }
         }
-        false
+        None
+    }
+
+    /// Validates a presented token against every unexpired key.
+    #[allow(dead_code)] // the server calls `authorize`; kept as a small public helper
+    pub fn validate(&self, token: &str, now: u64) -> bool {
+        self.authorize(token, now).is_some()
     }
 
     /// All keys, env first then file (used by `key list` and the settings UI).
@@ -155,6 +195,17 @@ impl KeyStore {
         Ok(true)
     }
 
+    /// Sets the scope of the file key at `idx`.
+    pub fn set_scope_index(&self, idx: usize, scope: Scope) -> io::Result<bool> {
+        let mut keys = (*self.file_keys()).clone();
+        if idx >= keys.len() {
+            return Ok(false);
+        }
+        keys[idx].scope = scope;
+        self.write(&keys)?;
+        Ok(true)
+    }
+
     /// The keys that live in the file only (the editable set).
     pub fn file_keys(&self) -> Arc<Vec<Key>> {
         let meta = fs::metadata(&self.file).ok();
@@ -188,6 +239,23 @@ impl KeyStore {
         let before = keys.len();
         keys.retain(|k| !k.matches_ident(ident));
         if keys.len() == before {
+            return Ok(false);
+        }
+        self.write(&keys)?;
+        Ok(true)
+    }
+
+    /// Sets the access scope on a file key by token or label.
+    pub fn set_scope(&self, ident: &str, scope: Scope) -> io::Result<bool> {
+        let mut keys = (*self.file_keys()).clone();
+        let mut hit = false;
+        for k in keys.iter_mut() {
+            if k.matches_ident(ident) {
+                k.scope = scope;
+                hit = true;
+            }
+        }
+        if !hit {
             return Ok(false);
         }
         self.write(&keys)?;
@@ -267,6 +335,7 @@ pub fn env_keys() -> Vec<Key> {
             token: t,
             label: "env".into(),
             expires: 0,
+            scope: Scope::Admin,
         });
     }
     if let Ok(list) = std::env::var("SYSVIEW_KEYS") {
@@ -277,20 +346,31 @@ pub fn env_keys() -> Vec<Key> {
             }
             let parts: Vec<&str> = entry.split(':').collect();
             let key = match parts.as_slice() {
+                // `token`, `label:token`, `label:token:expiry` or
+                // `label:token:expiry:scope` (scope optional, default admin).
                 [token] => Key {
                     token: (*token).into(),
                     label: String::new(),
                     expires: 0,
+                    scope: Scope::Admin,
                 },
                 [label, token] => Key {
                     token: (*token).into(),
                     label: (*label).into(),
                     expires: 0,
+                    scope: Scope::Admin,
                 },
                 [label, token, exp] => Key {
                     token: (*token).into(),
                     label: (*label).into(),
                     expires: exp.parse().unwrap_or(0),
+                    scope: Scope::Admin,
+                },
+                [label, token, exp, sc] => Key {
+                    token: (*token).into(),
+                    label: (*label).into(),
+                    expires: exp.parse().unwrap_or(0),
+                    scope: Scope::parse(sc).unwrap_or(Scope::Admin),
                 },
                 _ => continue,
             };
@@ -478,6 +558,7 @@ impl Key {
             token: token.into(),
             label: label.into(),
             expires,
+            scope: Scope::Admin,
         }
     }
 }
@@ -502,6 +583,7 @@ mod tests {
                 token: "live".into(),
                 label: "live".into(),
                 expires: 0,
+                scope: Scope::Admin,
             })
             .unwrap();
         store
@@ -509,6 +591,7 @@ mod tests {
                 token: "soon".into(),
                 label: "soon".into(),
                 expires: 100,
+                scope: Scope::Admin,
             })
             .unwrap();
         assert!(store.validate("live", 500));
@@ -543,6 +626,7 @@ mod tests {
                 token: "envtok".into(),
                 label: "env".into(),
                 expires: 0,
+                scope: Scope::Admin,
             }],
         );
         store.add(Key::from("filetok", "f", 1)).unwrap();
@@ -576,6 +660,24 @@ mod tests {
         assert_eq!(a.len(), 32);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn authorize_returns_the_keys_scope() {
+        let path = tmp_path("scope");
+        let store = KeyStore::new(path.clone(), Vec::new());
+        let mut view = Key::from("viewtok", "wall", 0);
+        view.scope = Scope::View;
+        store.add(view).unwrap();
+        store.add(Key::from("admintok", "laptop", 0)).unwrap();
+        assert_eq!(store.authorize("admintok", 0), Some(Scope::Admin));
+        assert_eq!(store.authorize("viewtok", 0), Some(Scope::View));
+        assert_eq!(store.authorize("nope", 0), None);
+        assert_eq!(store.authorize("", 0), None);
+        // Keys written before scopes existed deserialize as admin.
+        let legacy: Key = serde_json::from_str(r#"{"token":"old","label":"x"}"#).unwrap();
+        assert_eq!(legacy.scope, Scope::Admin);
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

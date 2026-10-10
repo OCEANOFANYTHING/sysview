@@ -462,7 +462,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
     <div class="sp-sec">
       <h3>Access keys</h3>
       <table class="sp-keys">
-        <thead><tr><th>label</th><th>token</th><th>source</th><th>expires</th><th></th></tr></thead>
+        <thead><tr><th>label</th><th>token</th><th>scope</th><th>source</th><th>expires</th><th></th></tr></thead>
         <tbody id="spKeyBody"></tbody>
       </table>
       <div class="sp-row">
@@ -481,6 +481,12 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
           <option value="custom">custom date&hellip;</option>
         </select>
         <input type="date" id="spKeyDate" style="display:none;">
+        <label class="sp-inline">scope
+          <select id="spKeyScope">
+            <option value="view">view (read-only)</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
         <label class="sp-inline"><input type="checkbox" id="spKeyReplace"> replace all others</label>
       </div>
       <button id="spKeyAdd">add key</button>
@@ -1753,9 +1759,14 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
         ? "<span style='color:#f85149;'>expired</span>"
         : esc(k.expires_label || "never");
       h += "<tr><td>" + esc(k.label || "-") + "</td><td class='mono'>" + esc(k.masked) + "</td>"
-         + "<td>" + (k.env ? "env" : "file") + "</td><td>" + expTxt + "</td><td>";
+         + "<td>" + esc(k.scope || "admin") + "</td>"
+         + "<td>" + (k.env ? "env" : "file") + "</td><td>" + expTxt + "</td>";
+      h += "<td>";
       if (!k.env) {
-        h += "<select class='sp-exp' data-idx='" + k.idx + "'>"
+        h += "<select class='sp-scope' data-idx='" + k.idx + "'>"
+           + "<option value='view'" + (k.scope === "view" ? " selected" : "") + ">view</option>"
+           + "<option value='admin'" + (k.scope === "admin" ? " selected" : "") + ">admin</option></select> "
+           + "<select class='sp-exp' data-idx='" + k.idx + "'>"
            + "<option value=''>expiry\u2026</option>"
            + "<option value='never'>never</option><option value='7d'>7d</option>"
            + "<option value='30d'>30d</option><option value='90d'>90d</option>"
@@ -1764,18 +1775,22 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
       }
       h += "</td></tr>";
     }
-    $("spKeyBody").innerHTML = h || "<tr><td colspan='5' class='sp-note'>no keys configured</td></tr>";
+    $("spKeyBody").innerHTML = h || "<tr><td colspan='6' class='sp-note'>no keys configured</td></tr>";
     var dels = $("spKeyBody").getElementsByTagName("button");
     for (i = 0; i < dels.length; i++) {
       if (dels[i].className.indexOf("sp-del") >= 0) {
         dels[i].onclick = function () { delKey(this.getAttribute("data-idx")); };
       }
     }
-    var exps = $("spKeyBody").getElementsByTagName("select");
-    for (i = 0; i < exps.length; i++) {
-      if (exps[i].className.indexOf("sp-exp") >= 0) {
-        exps[i].onchange = function () {
+    var sels = $("spKeyBody").getElementsByTagName("select");
+    for (i = 0; i < sels.length; i++) {
+      if (sels[i].className.indexOf("sp-exp") >= 0) {
+        sels[i].onchange = function () {
           if (this.value) setKeyExpiry(this.getAttribute("data-idx"), this.value);
+        };
+      } else if (sels[i].className.indexOf("sp-scope") >= 0) {
+        sels[i].onchange = function () {
+          setKeyScope(this.getAttribute("data-idx"), this.value);
         };
       }
     }
@@ -1794,6 +1809,12 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
       if (j && j.ok) loadSettings();
     });
   }
+  function setKeyScope(idx, scope) {
+    api("POST", "api/keys/scope", { idx: parseInt(idx, 10), scope: scope }, function (code, j) {
+      spMsg("spKeyMsg", (j && j.ok) ? "scope updated" : ((j && j.error) || "update failed"), j && j.ok);
+      if (j && j.ok) loadSettings();
+    });
+  }
   function addKey() {
     var expSel = $("spKeyExpiry").value;
     var expires = expSel;
@@ -1805,6 +1826,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
       label: $("spKeyLabel").value,
       token: $("spKeyToken").value,
       expires: expires,
+      scope: $("spKeyScope").value,
       replace: $("spKeyReplace").checked
     };
     api("POST", "api/keys", body, function (code, j) {

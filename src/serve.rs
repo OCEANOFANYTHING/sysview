@@ -37,9 +37,9 @@
 //!   clients; all timing knobs live in [`Timeouts`].
 //! - `no-store` + `nosniff` + frame deny + CSP + no-referrer headers.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -83,6 +83,16 @@ const SAMPLER_STACK_SIZE: usize = 512 * 1024;
 /// so a quick reload or a handoff between devices never loses a beat. After
 /// this window, the sampling state is dropped until someone connects again.
 const IDLE_GRACE: Duration = Duration::from_secs(30);
+
+/// Failed-auth throttle: after this many bad tokens from one IP inside
+/// [`AUTH_FAIL_WINDOW`], that IP is answered with 429 until the window rolls
+/// over. A successful auth clears the IP's counter. This bounds brute force
+/// against the key space without an external rate limiter.
+const AUTH_FAIL_LIMIT: u32 = 12;
+const AUTH_FAIL_WINDOW: Duration = Duration::from_secs(60);
+/// Cap on the failure table so a spoofed-source flood cannot grow it without
+/// bound; old windows are reaped long before this is reached in practice.
+const AUTH_FAIL_MAX_IPS: usize = 4096;
 
 /// Per-read idle cutoff: a keep-alive connection that goes quiet is released
 /// after this instead of parking its thread.
@@ -149,6 +159,22 @@ impl Default for ServeConfig {
     }
 }
 
+/// One IP's rolling failed-auth counter.
+struct AuthFails {
+    count: u32,
+    window_start: Instant,
+}
+
+impl AuthFails {
+    /// Rolls the window over once it has aged out, resetting the count.
+    fn roll(&mut self, now: Instant) {
+        if now.duration_since(self.window_start) >= AUTH_FAIL_WINDOW {
+            self.count = 0;
+            self.window_start = now;
+        }
+    }
+}
+
 /// State shared with connection threads.
 struct Shared {
     /// The latest fully-serialized snapshot (cleared while idle). Kept as
@@ -173,6 +199,9 @@ struct Shared {
     html: Mutex<Arc<str>>,
     /// Merged credential store used by the auth gate and the settings page.
     store: Arc<KeyStore>,
+    /// Per-IP failed-auth throttle (small, pruned). Only touched when auth is
+    /// enabled. Bounds brute force without an external rate limiter.
+    auth_fails: Mutex<HashMap<IpAddr, AuthFails>>,
     /// Persisted dashboard settings (bind/interface/port/interval/kiosk).
     settings: Mutex<Settings>,
     /// Where the settings file lives (`None` = do not persist).
@@ -209,6 +238,44 @@ impl Shared {
 
     fn is_kiosk(&self) -> bool {
         self.kiosk.load(Ordering::Relaxed)
+    }
+
+    /// True when `ip` has spent its failed-auth budget for the current window.
+    fn auth_blocked(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mut map = self.auth_fails.lock().unwrap_or_else(|p| p.into_inner());
+        match map.get_mut(&ip) {
+            Some(b) => {
+                b.roll(now);
+                b.count >= AUTH_FAIL_LIMIT
+            }
+            None => false,
+        }
+    }
+
+    /// Records one failed auth from `ip`, reaping stale windows if the table
+    /// has grown to its cap.
+    fn auth_failed(&self, ip: IpAddr) {
+        let now = Instant::now();
+        let mut map = self.auth_fails.lock().unwrap_or_else(|p| p.into_inner());
+        if map.len() >= AUTH_FAIL_MAX_IPS && !map.contains_key(&ip) {
+            map.retain(|_, b| now.duration_since(b.window_start) < AUTH_FAIL_WINDOW);
+            if map.len() >= AUTH_FAIL_MAX_IPS {
+                map.clear();
+            }
+        }
+        let b = map.entry(ip).or_insert(AuthFails {
+            count: 0,
+            window_start: now,
+        });
+        b.roll(now);
+        b.count = b.count.saturating_add(1);
+    }
+
+    /// Clears an IP's counter after a successful auth.
+    fn auth_succeeded(&self, ip: IpAddr) {
+        let mut map = self.auth_fails.lock().unwrap_or_else(|p| p.into_inner());
+        map.remove(&ip);
     }
 }
 
@@ -371,6 +438,7 @@ impl Server {
             kiosk: AtomicBool::new(cfg.kiosk),
             html: Mutex::new(html),
             store,
+            auth_fails: Mutex::new(HashMap::new()),
             settings: Mutex::new(settings),
             settings_path: cfg.settings_path.clone(),
             bind: cfg.bind.clone(),
@@ -407,9 +475,10 @@ impl Server {
         }
         while !self.stop.load(Ordering::Relaxed) {
             match listener.accept() {
-                Ok((s, _)) => {
+                Ok((s, addr)) => {
                     let mut s = s;
                     let _ = s.set_nonblocking(false);
+                    let peer = addr.ip();
                     if self.shared.conns.fetch_add(1, Ordering::SeqCst) >= MAX_CONNS {
                         self.shared.conns.fetch_sub(1, Ordering::SeqCst);
                         #[cfg(test)]
@@ -429,7 +498,7 @@ impl Server {
                     match thread::Builder::new().stack_size(CONN_STACK_SIZE).spawn({
                         let shared = Arc::clone(&shared);
                         move || {
-                            handle_conn(s, shared.clone(), timeouts);
+                            handle_conn(s, shared.clone(), timeouts, peer);
                             shared.conns.fetch_sub(1, Ordering::SeqCst);
                         }
                     }) {
@@ -507,6 +576,7 @@ fn build_store(cfg: &ServeConfig) -> Arc<KeyStore> {
             token: t.clone(),
             label: "cli".into(),
             expires: 0,
+            scope: keys::Scope::Admin,
         });
     }
     Arc::new(KeyStore::new(crate::paths::keys_file(), env))
@@ -1044,7 +1114,7 @@ fn esc_label(s: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
+fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts, peer: IpAddr) {
     let _ = stream.set_write_timeout(Some(timeouts.write));
     // Per-read idle timeout: a keep-alive connection that goes quiet is
     // released after a few seconds instead of parking a thread.
@@ -1164,7 +1234,8 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
         };
 
         // Auth gate: any configured, unexpired key (env, file, or --token) is
-        // accepted; the compare itself is constant-time inside the store.
+        // accepted; the compare itself is constant-time inside the store. A
+        // `view` key may read; state-changing routes require an `admin` key.
         let now = keys::now_unix();
         let supplied = {
             let q = if !query.is_empty() {
@@ -1178,16 +1249,49 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
                 header_token(&text)
             }
         };
-        if shared.store.has_any(now) && !shared.store.validate(&supplied, now) {
-            respond(
-                &mut stream,
-                "401 Unauthorized",
-                "text/plain; charset=utf-8",
-                b"unauthorized",
-                false,
-                false,
-            );
-            return;
+        if shared.store.has_any(now) {
+            match shared.store.authorize(&supplied, now) {
+                Some(scope) => {
+                    shared.auth_succeeded(peer);
+                    if requires_admin(method, path) && scope != keys::Scope::Admin {
+                        respond(
+                            &mut stream,
+                            "403 Forbidden",
+                            "text/plain; charset=utf-8",
+                            b"admin scope required",
+                            false,
+                            false,
+                        );
+                        return;
+                    }
+                }
+                None => {
+                    // Throttle brute force: once an IP has spent its bad-token
+                    // budget for the window, answer 429 without further work. A
+                    // valid token always clears the counter and gets through.
+                    if shared.auth_blocked(peer) {
+                        respond(
+                            &mut stream,
+                            "429 Too Many Requests",
+                            "text/plain; charset=utf-8",
+                            b"too many attempts",
+                            false,
+                            false,
+                        );
+                    } else {
+                        shared.auth_failed(peer);
+                        respond(
+                            &mut stream,
+                            "401 Unauthorized",
+                            "text/plain; charset=utf-8",
+                            b"unauthorized",
+                            false,
+                            false,
+                        );
+                    }
+                    return;
+                }
+            }
         }
 
         match (method, path) {
@@ -1275,11 +1379,7 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
                 // and Uptime-Kuma: version, uptime and whether the sampler is
                 // currently live. It deliberately never calls `mark_watching`,
                 // so scripted probes never keep a sleeping server awake.
-                let sampling = shared
-                    .latest
-                    .lock()
-                    .map(|g| g.is_some())
-                    .unwrap_or(false);
+                let sampling = shared.latest.lock().map(|g| g.is_some()).unwrap_or(false);
                 let body = format!(
                     "{{\"ok\":true,\"status\":\"ok\",\"version\":\"{}\",\"uptime_secs\":{},\"sampling\":{}}}",
                     env!("CARGO_PKG_VERSION"),
@@ -1373,6 +1473,17 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
                     keep,
                 );
             }
+            ("POST", "/api/keys/scope") => {
+                let out = set_key_scope(&shared, &body);
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &out,
+                    false,
+                    keep,
+                );
+            }
             ("POST", "/api/update") => {
                 let v = serde_json::from_slice::<serde_json::Value>(&body)
                     .unwrap_or(serde_json::Value::Null);
@@ -1420,6 +1531,21 @@ fn handle_conn(mut stream: TcpStream, shared: Arc<Shared>, timeouts: Timeouts) {
             return;
         }
     }
+}
+
+/// Routes that change state: only an `admin` key may call them. Everything
+/// else (the page, snapshot, metrics, health, interfaces) is readable by any
+/// valid key, so a `view` key is safe to leave on a wall display.
+fn requires_admin(method: &str, path: &str) -> bool {
+    matches!(
+        path,
+        "/api/settings"
+            | "/api/keys"
+            | "/api/keys/delete"
+            | "/api/keys/expiry"
+            | "/api/update"
+            | "/api/restart"
+    ) || method == "POST"
 }
 
 fn respond(
@@ -1539,6 +1665,7 @@ fn key_json(k: &keys::Key, idx: Option<usize>, now: u64) -> serde_json::Value {
     json!({
         "label": k.label.clone(),
         "masked": k.masked(),
+        "scope": k.scope.as_str(),
         "expires": k.expires,
         "expires_label": expires_label(k.expires, now),
         "expired": k.expired(now),
@@ -1674,12 +1801,20 @@ fn add_key(shared: &Shared, body: &[u8]) -> Vec<u8> {
         _ => 0,
     };
     let replace = v.get("replace").and_then(|x| x.as_bool()).unwrap_or(false);
+    let scope = match v.get("scope").and_then(|x| x.as_str()) {
+        Some(s) => match keys::Scope::parse(s) {
+            Ok(s) => s,
+            Err(e) => return err_json(&e),
+        },
+        None => keys::Scope::Admin,
+    };
     let result = shared
         .store
         .add(keys::Key {
             token: token.clone(),
             label: label.clone(),
             expires,
+            scope,
         })
         .and_then(|()| {
             if replace {
@@ -1693,6 +1828,7 @@ fn add_key(shared: &Shared, body: &[u8]) -> Vec<u8> {
             "ok": true,
             "token": token,
             "label": label,
+            "scope": scope.as_str(),
             "expires": expires,
             "expires_label": expires_label(expires, now),
             "replaced": replace,
@@ -1759,6 +1895,38 @@ fn set_key_expiry(shared: &Shared, body: &[u8]) -> Vec<u8> {
         })
         .to_string()
         .into_bytes(),
+        Ok(false) => err_json("no matching file key (environment keys are read-only)"),
+        Err(e) => err_json(&e.to_string()),
+    }
+}
+
+/// `POST /api/keys/scope`: changes the access level (admin/view) of a file key.
+fn set_key_scope(shared: &Shared, body: &[u8]) -> Vec<u8> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return err_json("bad json");
+    };
+    let scope = match v.get("scope").and_then(|x| x.as_str()) {
+        Some(s) => match keys::Scope::parse(s) {
+            Ok(s) => s,
+            Err(e) => return err_json(&e),
+        },
+        None => return err_json("scope required"),
+    };
+    let result = if let Some(idx) = v.get("idx").and_then(|x| x.as_u64()) {
+        shared.store.set_scope_index(idx as usize, scope)
+    } else if let Some(ident) = v.get("ident").and_then(|x| x.as_str()) {
+        let ident = ident.trim();
+        if ident.is_empty() {
+            return err_json("idx or ident required");
+        }
+        shared.store.set_scope(ident, scope)
+    } else {
+        return err_json("idx or ident required");
+    };
+    match result {
+        Ok(true) => json!({ "ok": true, "scope": scope.as_str() })
+            .to_string()
+            .into_bytes(),
         Ok(false) => err_json("no matching file key (environment keys are read-only)"),
         Err(e) => err_json(&e.to_string()),
     }
@@ -2346,6 +2514,140 @@ mod tests {
         let accept = Arc::clone(&server);
         let handle = thread::spawn(move || accept.accept_loop(listener));
         (local, server, stop, handle)
+    }
+
+    /// Like [`start_test_server`] but with an explicit credential store, so
+    /// scope and throttle paths can be exercised with more than one key.
+    fn start_test_server_with_store(
+        store: Arc<KeyStore>,
+    ) -> (
+        SocketAddr,
+        Arc<Server>,
+        Arc<AtomicBool>,
+        thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let local = listener.local_addr().expect("local addr");
+        let cfg = ServeConfig {
+            bind: "127.0.0.1".to_string(),
+            port: local.port(),
+            interval_secs: 0.05,
+            max_procs: 20,
+            store: Some(store),
+            ..ServeConfig::default()
+        };
+        let server = Arc::new(
+            Server::start_with_timeouts(&cfg, test_timeouts()).expect("start test server"),
+        );
+        let stop = Arc::clone(&server.stop);
+        let accept = Arc::clone(&server);
+        let handle = thread::spawn(move || accept.accept_loop(listener));
+        (local, server, stop, handle)
+    }
+
+    /// A fresh on-disk store holding one `view` and one `admin` key.
+    fn scoped_store() -> Arc<KeyStore> {
+        let path = std::env::temp_dir().join(format!(
+            "sysview-scope-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let store = KeyStore::new(path, Vec::new());
+        store
+            .add(keys::Key {
+                token: "viewtok".into(),
+                label: "wall".into(),
+                expires: 0,
+                scope: keys::Scope::View,
+            })
+            .unwrap();
+        store
+            .add(keys::Key {
+                token: "admintok".into(),
+                label: "laptop".into(),
+                expires: 0,
+                scope: keys::Scope::Admin,
+            })
+            .unwrap();
+        Arc::new(store)
+    }
+
+    fn auth(tok: &str) -> String {
+        format!("Authorization: Bearer {tok}")
+    }
+
+    #[test]
+    fn view_keys_read_but_cannot_administer() {
+        let store = scoped_store();
+        let (addr, server, stop, handle) = start_test_server_with_store(store);
+        wait_for_payload(addr, &server, Some("admintok"), "first payload");
+
+        // Read routes work for both scopes; /health needs no key at all.
+        for tok in ["viewtok", "admintok"] {
+            let r = http_get_with_auth(addr, "/api/snapshot", &auth(tok));
+            assert_eq!(r.status, 200, "snapshot as {tok}");
+        }
+        // Every route is behind the gate while keys are configured, health too.
+        assert_eq!(http_get(addr, "/health").status, 401);
+        assert_eq!(
+            http_get_with_auth(addr, "/health", &auth("viewtok")).status,
+            200
+        );
+
+        // State-changing routes need admin; a view key gets 403, not 401.
+        assert_eq!(
+            http_get_with_auth(addr, "/api/settings", &auth("admintok")).status,
+            200
+        );
+        assert_eq!(
+            http_get_with_auth(addr, "/api/settings", &auth("viewtok")).status,
+            403
+        );
+
+        // A wrong token is still a plain 401.
+        assert_eq!(
+            http_get_with_auth(addr, "/api/snapshot", &auth("nope")).status,
+            401
+        );
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
+    }
+
+    #[test]
+    fn bad_tokens_are_throttled_but_a_good_one_still_works() {
+        let store = scoped_store();
+        let (addr, server, stop, handle) = start_test_server_with_store(store);
+        wait_for_payload(addr, &server, Some("admintok"), "first payload");
+
+        // Spend the failed-auth budget from this IP.
+        let mut saw_429 = false;
+        for _ in 0..(AUTH_FAIL_LIMIT + 3) {
+            let r = http_get_with_auth(addr, "/api/snapshot", &auth("wrong"));
+            if r.status == 429 {
+                saw_429 = true;
+                break;
+            }
+            assert_eq!(r.status, 401);
+        }
+        assert!(saw_429, "never throttled after {AUTH_FAIL_LIMIT} failures");
+
+        // A valid token from the same IP still succeeds and clears the counter.
+        assert_eq!(
+            http_get_with_auth(addr, "/api/snapshot", &auth("admintok")).status,
+            200
+        );
+        assert_eq!(
+            http_get_with_auth(addr, "/api/snapshot", &auth("wrong")).status,
+            401
+        );
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = handle.join();
     }
 
     fn tcp_connect(addr: SocketAddr) -> TcpStream {

@@ -191,6 +191,9 @@ pub enum KeyCmd {
         /// Remove every other file key in the same step
         #[arg(long)]
         replace: bool,
+        /// Access level: admin (settings/keys/update) or view (read-only)
+        #[arg(long, default_value = "admin")]
+        scope: String,
     },
     /// Remove a key by token or label
     Rm {
@@ -204,6 +207,14 @@ pub enum KeyCmd {
         /// Expiry: 7d, 30d, 90d, 6mo, 1y, never, or a date like 2026-12-31
         #[arg(long, default_value = "never")]
         expires: String,
+    },
+    /// Change a key's access level (admin or view)
+    Scope {
+        /// Token or label
+        ident: String,
+        /// Access level: admin or view
+        #[arg(long, default_value = "view")]
+        scope: String,
     },
 }
 
@@ -369,7 +380,10 @@ fn run_key(cmd: KeyCmd) {
                 println!("add one with:  sysview key add --expires 30d");
                 return;
             }
-            println!("{:<20} {:<20} {:<6} EXPIRES", "LABEL", "TOKEN", "SOURCE");
+            println!(
+                "{:<20} {:<20} {:<6} {:<6} EXPIRES",
+                "LABEL", "TOKEN", "SOURCE", "SCOPE"
+            );
             for (k, from_env) in entries {
                 let label = if k.label.is_empty() {
                     "-"
@@ -384,7 +398,14 @@ fn run_key(cmd: KeyCmd) {
                 } else {
                     keys::format_time(k.expires)
                 };
-                println!("{:<20} {:<20} {:<6} {}", label, k.masked(), source, expiry);
+                println!(
+                    "{:<20} {:<20} {:<6} {:<6} {}",
+                    label,
+                    k.masked(),
+                    source,
+                    k.scope.as_str(),
+                    expiry
+                );
             }
             println!("\nkeys file: {}", store.file().display());
         }
@@ -393,9 +414,14 @@ fn run_key(cmd: KeyCmd) {
             token,
             expires,
             replace,
+            scope,
         } => {
             let exp = match keys::parse_expiry(&expires, now) {
                 Ok(e) => e,
+                Err(e) => fail(&format!("sysview key: {e}")),
+            };
+            let scope = match keys::Scope::parse(&scope) {
+                Ok(s) => s,
                 Err(e) => fail(&format!("sysview key: {e}")),
             };
             let token = token
@@ -406,6 +432,7 @@ fn run_key(cmd: KeyCmd) {
                 token: token.clone(),
                 label: label.clone(),
                 expires: exp,
+                scope,
             }) {
                 fail(&format!("sysview key: {e}"));
             }
@@ -424,6 +451,7 @@ fn run_key(cmd: KeyCmd) {
             };
             println!("{what}{extra}");
             println!("  token:   {token}");
+            println!("  scope:   {}", scope.as_str());
             println!(
                 "  expires: {}",
                 if exp == 0 {
@@ -456,6 +484,19 @@ fn run_key(cmd: KeyCmd) {
                         keys::format_time(exp)
                     }
                 ),
+                Ok(false) => fail(&format!(
+                    "sysview key: no file key matches '{ident}' (environment keys are read-only)"
+                )),
+                Err(e) => fail(&format!("sysview key: {e}")),
+            }
+        }
+        KeyCmd::Scope { ident, scope } => {
+            let scope = match keys::Scope::parse(&scope) {
+                Ok(s) => s,
+                Err(e) => fail(&format!("sysview key: {e}")),
+            };
+            match store.set_scope(&ident, scope) {
+                Ok(true) => println!("set scope for '{ident}' to {}", scope.as_str()),
                 Ok(false) => fail(&format!(
                     "sysview key: no file key matches '{ident}' (environment keys are read-only)"
                 )),
