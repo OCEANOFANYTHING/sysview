@@ -71,6 +71,14 @@ const MAX_CONNS: usize = 64;
 /// to (2 MiB on Linux, 1 MiB on Windows).
 const CONN_STACK_SIZE: usize = 256 * 1024;
 
+/// Stack size for the background sampler thread. The sampler only refreshes
+/// sysinfo and serialises a shallow snapshot, so 512 KiB is ample. Keeping it
+/// under 2 MiB also matters: a kernel with transparent huge pages set to
+/// `always` will back a default (2 MiB) `thread::spawn` stack with a single
+/// 2 MiB huge page, so a near-idle thread costs ~2 MiB of RSS. A sub-2 MiB
+/// stack cannot be huge-paged, which makes the idle server measurably leaner.
+const SAMPLER_STACK_SIZE: usize = 512 * 1024;
+
 /// How long the sampler keeps running after the last dashboard disconnects,
 /// so a quick reload or a handoff between devices never loses a beat. After
 /// this window, the sampling state is dropped until someone connects again.
@@ -517,80 +525,84 @@ fn start_sampler(
     idle_grace: Duration,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        let mut st: Option<WebState> = None;
-        let mut last_mp = 0usize;
-        let mut ring = HistoryRing::new();
-        loop {
-            if stop.load(Ordering::Relaxed) {
-                break;
-            }
-            let t0 = Instant::now();
-            let interval = shared.interval_secs();
-            let max_procs = shared.max_procs();
-            let active_conns = shared.conns.load(Ordering::Relaxed);
-            let last_conn = match shared.last_conn.lock() {
-                Ok(g) => *g,
-                Err(p) => *p.into_inner(),
-            };
-            let active = active_conns > 0 || last_conn.elapsed() <= idle_grace;
+    thread::Builder::new()
+        .name("sampler".to_string())
+        .stack_size(SAMPLER_STACK_SIZE)
+        .spawn(move || {
+            let mut st: Option<WebState> = None;
+            let mut last_mp = 0usize;
+            let mut ring = HistoryRing::new();
+            loop {
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let t0 = Instant::now();
+                let interval = shared.interval_secs();
+                let max_procs = shared.max_procs();
+                let active_conns = shared.conns.load(Ordering::Relaxed);
+                let last_conn = match shared.last_conn.lock() {
+                    Ok(g) => *g,
+                    Err(p) => *p.into_inner(),
+                };
+                let active = active_conns > 0 || last_conn.elapsed() <= idle_grace;
 
-            if active {
-                // (Re)build sampling state on the first tick after idle, and
-                // whenever the settings page changes the process cap.
-                if st.is_none() || last_mp != max_procs {
-                    st = Some(WebState::new(max_procs));
-                    last_mp = max_procs;
-                }
-                #[cfg(test)]
-                shared.sampling.store(true, Ordering::Relaxed);
-                let mut snap = st.as_mut().expect("state built above").snapshot();
-                let (rx, tx) = net_rate_sum(&snap.networks);
-                ring.push(
-                    snap.cpu.usage,
-                    snap.memory.used_percent,
-                    swap_percent(&snap.memory),
-                    rx,
-                    tx,
-                );
-                let core_usage: Vec<f32> = snap.cpu.cores.iter().map(|c| c.usage).collect();
-                ring.push_cores(&core_usage);
-                for d in &snap.disks {
-                    ring.push_disk(&d.mount_point, disk_used_percent(d));
-                }
-                snap.history = ring.to_web();
-                // Serialize into the cached payload's own allocation: take it,
-                // clear it (capacity is preserved), write in place, put it
-                // back. Each tick performs zero heap allocations and exactly
-                // one payload-sized buffer is ever retained.
-                {
-                    let mut slot = match shared.latest.lock() {
-                        Ok(g) => g,
-                        Err(p) => p.into_inner(),
-                    };
-                    let mut buf = slot.take().unwrap_or_default();
-                    buf.clear();
-                    if serde_json::to_writer(&mut buf, &snap).is_ok() {
-                        *slot = Some(buf);
+                if active {
+                    // (Re)build sampling state on the first tick after idle, and
+                    // whenever the settings page changes the process cap.
+                    if st.is_none() || last_mp != max_procs {
+                        st = Some(WebState::new(max_procs));
+                        last_mp = max_procs;
+                    }
+                    #[cfg(test)]
+                    shared.sampling.store(true, Ordering::Relaxed);
+                    let mut snap = st.as_mut().expect("state built above").snapshot();
+                    let (rx, tx) = net_rate_sum(&snap.networks);
+                    ring.push(
+                        snap.cpu.usage,
+                        snap.memory.used_percent,
+                        swap_percent(&snap.memory),
+                        rx,
+                        tx,
+                    );
+                    let core_usage: Vec<f32> = snap.cpu.cores.iter().map(|c| c.usage).collect();
+                    ring.push_cores(&core_usage);
+                    for d in &snap.disks {
+                        ring.push_disk(&d.mount_point, disk_used_percent(d));
+                    }
+                    snap.history = ring.to_web();
+                    // Serialize into the cached payload's own allocation: take it,
+                    // clear it (capacity is preserved), write in place, put it
+                    // back. Each tick performs zero heap allocations and exactly
+                    // one payload-sized buffer is ever retained.
+                    {
+                        let mut slot = match shared.latest.lock() {
+                            Ok(g) => g,
+                            Err(p) => p.into_inner(),
+                        };
+                        let mut buf = slot.take().unwrap_or_default();
+                        buf.clear();
+                        if serde_json::to_writer(&mut buf, &snap).is_ok() {
+                            *slot = Some(buf);
+                        }
+                    }
+                } else if st.is_some() {
+                    // Nobody watching for a while: free the sysinfo state and the
+                    // cached payload. History ring (a few KB) is retained.
+                    st = None;
+                    #[cfg(test)]
+                    shared.sampling.store(false, Ordering::Relaxed);
+                    if let Ok(mut g) = shared.latest.lock() {
+                        *g = None;
                     }
                 }
-            } else if st.is_some() {
-                // Nobody watching for a while: free the sysinfo state and the
-                // cached payload. History ring (a few KB) is retained.
-                st = None;
-                #[cfg(test)]
-                shared.sampling.store(false, Ordering::Relaxed);
-                if let Ok(mut g) = shared.latest.lock() {
-                    *g = None;
+
+                let sleep = interval - t0.elapsed().as_secs_f64();
+                if sleep > 0.0 {
+                    thread::sleep(Duration::from_secs_f64(sleep));
                 }
             }
-
-            let sleep = interval - t0.elapsed().as_secs_f64();
-            if sleep > 0.0 {
-                thread::sleep(Duration::from_secs_f64(sleep));
-            }
-        }
-    })
+        })
+        .expect("spawn sampler thread")
 }
 
 /// Rolling per-metric history (capped), kept in the sampler thread so it
@@ -3253,6 +3265,19 @@ mod tests {
         assert!(
             worst_case <= 32 * 1024 * 1024,
             "connection threads could commit {worst_case} bytes"
+        );
+    }
+
+    /// The sampler is one long-lived thread; keep its stack below the 2 MiB
+    /// transparent-huge-page threshold so an idle kernel cannot charge a full
+    /// huge page for a mostly-empty stack.
+    #[test]
+    fn sampler_thread_stack_is_below_hugepage_threshold() {
+        let stack = std::hint::black_box(SAMPLER_STACK_SIZE);
+        assert!(stack >= 128 * 1024, "sampler stack of {stack} is too small");
+        assert!(
+            stack < 2 * 1024 * 1024,
+            "sampler stack of {stack} would be backed by a 2 MiB huge page"
         );
     }
 }
