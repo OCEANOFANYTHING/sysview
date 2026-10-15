@@ -8,6 +8,7 @@ mod paths;
 mod qr;
 mod render;
 mod serve;
+mod service;
 mod settings;
 mod top;
 mod update;
@@ -120,6 +121,42 @@ pub struct Cli {
 }
 
 #[derive(Clone, Subcommand)]
+pub enum ServiceCmd {
+    /// Register (or overwrite) the dashboard with the OS service manager
+    Install {
+        /// Machine-wide instead of the current user
+        #[arg(long)]
+        system: bool,
+        /// Address to bind
+        #[arg(long, default_value = "0.0.0.0")]
+        bind: String,
+        /// Port to listen on
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
+        /// Processes in the dashboard payload
+        #[arg(long, default_value_t = 100)]
+        max_procs: usize,
+        /// Token the service keeps (default: SYSVIEW_TOKEN, else a fresh one)
+        #[arg(long)]
+        token: Option<String>,
+        /// Print the unit/task and the commands instead of applying them
+        #[arg(long)]
+        print: bool,
+    },
+    /// Stop the service and remove its definition
+    Uninstall {
+        /// The machine-wide service instead of the current user's
+        #[arg(long)]
+        system: bool,
+    },
+    /// Ask the platform's supervisor what it thinks
+    Status {
+        #[arg(long)]
+        system: bool,
+    },
+}
+
+#[derive(Clone, Subcommand)]
 pub enum Section {
     /// Full overview of every section
     Overview,
@@ -161,6 +198,11 @@ pub enum Section {
     },
     /// Live process monitor: re-sorts and resizes while it runs
     Top,
+    /// Install, remove or inspect the dashboard as an OS service
+    Service {
+        #[command(subcommand)]
+        cmd: ServiceCmd,
+    },
     /// Check live values against thresholds and exit non-zero on a breach
     /// (for cron, CI and monitoring probes)
     Check {
@@ -341,6 +383,10 @@ fn main() {
             }
             return;
         }
+        Some(Section::Service { cmd }) => {
+            run_service(&cli, cmd);
+            return;
+        }
         Some(Section::Serve {
             port,
             bind,
@@ -450,6 +496,7 @@ fn main() {
         Section::Export { .. } => unreachable!("export dispatch happens earlier"),
         Section::Diff { .. } => unreachable!("diff dispatch happens earlier"),
         Section::Top => unreachable!("top dispatch happens earlier"),
+        Section::Service { .. } => unreachable!("service dispatch happens earlier"),
         Section::Check { .. } => unreachable!("check dispatch happens earlier"),
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
         Section::Key { .. } => unreachable!("key dispatch happens earlier"),
@@ -789,6 +836,50 @@ fn run_check(
 fn fail(msg: &str) -> ! {
     eprintln!("{msg}");
     std::process::exit(1);
+}
+
+/// `sysview service …`: register the dashboard with the platform's own
+/// supervisor (systemd, launchd, Task Scheduler), or ask it what's running.
+fn run_service(cli: &Cli, cmd: ServiceCmd) {
+    let result = match cmd {
+        ServiceCmd::Install {
+            system,
+            bind,
+            port,
+            max_procs,
+            token,
+            print,
+        } => {
+            let token = token
+                .filter(|t| !t.trim().is_empty())
+                .or_else(|| {
+                    std::env::var("SYSVIEW_TOKEN")
+                        .ok()
+                        .filter(|t| !t.trim().is_empty())
+                })
+                .unwrap_or_else(keys::generate_token);
+            service::install(
+                &service::Options {
+                    system,
+                    bind,
+                    port,
+                    interval: cli.interval,
+                    max_procs,
+                    token,
+                },
+                print,
+            )
+        }
+        ServiceCmd::Uninstall { system } => service::uninstall(system).map(|m| format!("{m}\n")),
+        ServiceCmd::Status { system } => service::status(system).map(|()| String::new()),
+    };
+    match result {
+        Ok(text) => {
+            let mut out = output_stream(cli);
+            let _ = write!(out, "{text}");
+        }
+        Err(e) => fail(&format!("sysview service: {e}")),
+    }
 }
 
 /// `sysview ports`: list TCP sockets that are accepting connections.
