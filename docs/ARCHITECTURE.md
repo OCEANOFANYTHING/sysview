@@ -23,6 +23,12 @@ dependencies. It has two front-ends:
 | `src/model.rs` | all serialized types (one-shot + dashboard) |
 | `src/render.rs` | terminal output (human + JSON) |
 | `src/serve.rs` | HTTP server, sampler thread, history ring, `/metrics` |
+| `src/history.rs` | `--history-file`: append one JSON line per sample, replay the tail, trim |
+| `src/top.rs` | `sysview top` screen loop and key handling (no TUI dependency) |
+| `src/service.rs` | `sysview service`: systemd / launchd / Task Scheduler unit generation |
+| `src/export.rs` | `sysview export`: Prometheus or CSV, via the `/metrics` view |
+| `src/diff.rs` | `sysview diff`: snapshot loading and host-level comparison |
+| `src/qr.rs` | `serve --qr`: QR code for the dashboard URL, drawn with ANSI backgrounds |
 | `web/dashboard.html` | embedded ES5 dashboard (embedded via `include_str!`) |
 | `scripts/`, `dist/` | Debian/systemd deployment (see README) |
 
@@ -82,6 +88,13 @@ a second set per logical core, and a third set per mounted volume (capped at
 `MAX_DISK_MOUNTS = 64`). The same ring feeds every client, so all screens
 show identical charts and every fetcher gets an identical payload.
 
+**`--history-file`** — when given, the sampler appends one compact JSON line per
+tick (`{"t":…,"cpu":…,"mem":…,"swap":…,"rx":…,"tx":…}`) and replays the file's
+tail into the ring at startup, so a restart continues the charts. Only the five
+scalar series are recorded — per-core and per-mount history cannot be
+reconstructed honestly after a restart. The file is trimmed back to one window
+once it has grown to four, so it cannot grow without bound.
+
 ## Serialization & memory posture
 
 Per tick the snapshot is serialized **into the previous tick's buffer**
@@ -91,6 +104,9 @@ retained and per-tick heap allocations are zero.
 - `/` — the dashboard HTML (poll interval + kiosk injected at startup).
 - `/api/snapshot` — the cached JSON bytes, served **under the lock** (no
   60–85 KB clone per poll).
+- `/api/history` — only the `history` field of those cached bytes, plus the
+  sample interval and window size, so a scraper need not pull (or parse) the
+  whole snapshot.
 - `/metrics` — Prometheus text 0.0.4: decodes the *cached bytes* into a
   minimal typed view; the process array is **counted, never materialized**;
   no intermediate JSON tree, retains nothing, costs nothing while idle.
@@ -117,6 +133,7 @@ per-disk rings); the process list is capped by `--max-procs` (default 100).
 | `/` , `/index.html` | yes | yes | dashboard HTML |
 | `/api/snapshot` | yes | yes | JSON snapshot, or `503 {"error":"warming up"}` |
 | `/metrics` | yes | yes | Prometheus text 0.0.4, or `503 warming up` |
+| `/api/history` | yes | yes | just the rolling window + interval/window size, or `503 {"error":"warming up"}` |
 | `/health` | yes | **no** | `{"ok":true,"status":"ok","version":…,"uptime_secs":…,"sampling":…}` |
 | `/fleet` , `/fleet.html` | yes | **no** | multi-host fleet page (hosts live in the browser) |
 | `/manifest.webmanifest` | yes | **no** | web app manifest for the installable dashboard |
