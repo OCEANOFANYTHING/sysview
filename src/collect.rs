@@ -3,8 +3,10 @@ use std::thread;
 
 #[cfg(target_os = "linux")]
 use std::net::Ipv6Addr;
+#[cfg(any(target_os = "linux", test))]
+use std::path::Path;
 #[cfg(target_os = "linux")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use sysinfo::{
     Components, Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, Process, ProcessRefreshKind,
@@ -174,42 +176,53 @@ pub fn cgroup() -> Option<CgroupInfo> {
     #[cfg(target_os = "linux")]
     {
         let raw = std::fs::read_to_string("/proc/self/cgroup").ok()?;
-        // cgroup v2 has a single entry, `0::/path`; v1 lists one per controller.
-        let path = raw
-            .lines()
-            .find_map(|line| line.strip_prefix("0::"))?
-            .trim()
-            .to_string();
-        let base = PathBuf::from("/sys/fs/cgroup").join(path.trim_start_matches('/'));
-        let cores = std::fs::read_to_string(base.join("cpu.max"))
-            .ok()
-            .and_then(|t| cpu_max_cores(&t));
-        let pressure = |name: &str| {
-            std::fs::read_to_string(base.join(name))
-                .ok()
-                .and_then(|t| pressure_avg10(&t))
-        };
-        Some(CgroupInfo {
-            version: 2,
-            path,
-            cpu_max_cores: cores,
-            cpu_usage_secs: std::fs::read_to_string(base.join("cpu.stat"))
-                .ok()
-                .and_then(|t| stat_value(&t, "usage_usec"))
-                .map(|usec| usec as f64 / 1_000_000.0),
-            memory_current: counter(&base, "memory.current"),
-            memory_max: counter(&base, "memory.max"),
-            memory_swap_max: counter(&base, "memory.swap.max"),
-            pids_current: counter(&base, "pids.current"),
-            pids_max: counter(&base, "pids.max"),
-            pressure_cpu: pressure("cpu.pressure"),
-            pressure_memory: pressure("memory.pressure"),
-            pressure_io: pressure("io.pressure"),
-        })
+        let node = v2_node(&raw)?;
+        Some(cgroup_from(Path::new("/sys/fs/cgroup"), &node))
     }
     #[cfg(not(target_os = "linux"))]
     {
         None
+    }
+}
+
+/// The cgroup v2 node from `/proc/self/cgroup`, which lists exactly one line:
+/// `0::/some/path`. A host with only a v1 hierarchy has no such line.
+#[cfg(any(target_os = "linux", test))]
+fn v2_node(contents: &str) -> Option<String> {
+    contents
+        .lines()
+        .find_map(|line| line.strip_prefix("0::"))
+        .map(|path| path.trim().to_string())
+}
+
+/// Reads the cgroup v2 files under `root` for `node`. Split from the mount path
+/// so the parsing can be exercised without a real cgroup filesystem.
+#[cfg(any(target_os = "linux", test))]
+fn cgroup_from(root: &Path, node: &str) -> CgroupInfo {
+    let base = root.join(node.trim_start_matches('/'));
+    let pressure = |name: &str| {
+        std::fs::read_to_string(base.join(name))
+            .ok()
+            .and_then(|t| pressure_avg10(&t))
+    };
+    CgroupInfo {
+        version: 2,
+        path: node.to_string(),
+        cpu_max_cores: std::fs::read_to_string(base.join("cpu.max"))
+            .ok()
+            .and_then(|t| cpu_max_cores(&t)),
+        cpu_usage_secs: std::fs::read_to_string(base.join("cpu.stat"))
+            .ok()
+            .and_then(|t| stat_value(&t, "usage_usec"))
+            .map(|usec| usec as f64 / 1_000_000.0),
+        memory_current: counter(&base, "memory.current"),
+        memory_max: counter(&base, "memory.max"),
+        memory_swap_max: counter(&base, "memory.swap.max"),
+        pids_current: counter(&base, "pids.current"),
+        pids_max: counter(&base, "pids.max"),
+        pressure_cpu: pressure("cpu.pressure"),
+        pressure_memory: pressure("memory.pressure"),
+        pressure_io: pressure("io.pressure"),
     }
 }
 
@@ -244,7 +257,7 @@ fn pressure_avg10(text: &str) -> Option<f64> {
 }
 
 /// A cgroup counter file. `max` (unlimited) reads as absent rather than 0.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn counter(base: &Path, name: &str) -> Option<u64> {
     std::fs::read_to_string(base.join(name))
         .ok()?
@@ -254,8 +267,21 @@ fn counter(base: &Path, name: &str) -> Option<u64> {
 }
 
 #[cfg(test)]
-mod cgroup_parse_tests {
-    use super::{cpu_max_cores, pressure_avg10, stat_value};
+mod sysfs_parse_tests {
+    use super::{cgroup_from, cpu_max_cores, gpu_from, pressure_avg10, stat_value, v2_node};
+    use std::path::Path;
+
+    /// A private empty directory, removed and recreated so a rerun starts clean.
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sysview-sysfs-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn put(dir: &Path, name: &str, body: &str) {
+        std::fs::write(dir.join(name), body).unwrap();
+    }
 
     #[test]
     fn cpu_max_reads_a_quota_or_unlimited() {
@@ -279,6 +305,95 @@ mod cgroup_parse_tests {
         let psi = "some avg10=1.25 avg60=0.40 avg300=0.10 total=99123\n";
         assert_eq!(pressure_avg10(psi), Some(1.25));
         assert_eq!(pressure_avg10("garbage"), None);
+    }
+
+    #[test]
+    fn v2_node_needs_a_v2_line() {
+        assert_eq!(v2_node("0::/user.slice\n").as_deref(), Some("/user.slice"));
+        assert_eq!(
+            v2_node("0::/a/b\n1:name=systemd:/x\n").as_deref(),
+            Some("/a/b")
+        );
+        assert_eq!(v2_node("1:name=systemd:/\n").as_deref(), None);
+    }
+
+    #[test]
+    fn cgroup_files_are_read_from_the_node_and_max_means_unlimited() {
+        let root = tmp("cgroup");
+        let node = root.join("user.slice/app.scope");
+        std::fs::create_dir_all(&node).unwrap();
+        put(&node, "cpu.max", "200000 100000\n");
+        put(&node, "cpu.stat", "usage_usec 2500000\nuser_usec 2000000\n");
+        put(&node, "memory.current", "1048576\n");
+        put(&node, "memory.max", "max\n");
+        put(&node, "pids.current", "7\n");
+        put(&node, "pids.max", "max\n");
+        put(
+            &node,
+            "cpu.pressure",
+            "some avg10=1.50 avg60=0.10 total=1\n",
+        );
+        put(&node, "io.pressure", "some avg10=0.25 avg60=0.00 total=1\n");
+
+        let c = cgroup_from(&root, "/user.slice/app.scope");
+        assert_eq!(c.version, 2);
+        assert_eq!(c.path, "/user.slice/app.scope");
+        assert_eq!(c.cpu_max_cores, Some(2.0));
+        assert_eq!(c.cpu_usage_secs, Some(2.5));
+        assert_eq!(c.memory_current, Some(1_048_576));
+        assert_eq!(c.memory_max, None, "\"max\" is unlimited, not zero");
+        assert_eq!(c.pids_current, Some(7));
+        assert_eq!(c.pids_max, None);
+        assert_eq!(c.pressure_cpu, Some(1.5));
+        assert_eq!(c.pressure_io, Some(0.25));
+        // Files a cgroup does not have must read as "not known", not as 0.
+        assert_eq!(c.memory_swap_max, None);
+        assert_eq!(c.pressure_memory, None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn gpu_files_are_read_where_sysfs_has_them() {
+        let dev = tmp("amdgpu");
+        let uevent = "DRIVER=amdgpu\nPCI_ID=1002:1638\n";
+        put(&dev, "uevent", uevent);
+        put(&dev, "mem_info_vram_total", "8589934592\n");
+        put(&dev, "mem_info_vram_used", "1073741824\n");
+        put(&dev, "gpu_busy_percent", "37\n");
+        std::fs::create_dir_all(dev.join("hwmon/hwmon3")).unwrap();
+        put(&dev.join("hwmon/hwmon3"), "temp1_input", "56000\n");
+
+        let g = gpu_from("card0", &dev, uevent);
+        assert_eq!(g.card, "card0");
+        assert_eq!(g.vendor, "AMD");
+        assert_eq!(g.device_id, "1002:1638");
+        assert_eq!(g.driver.as_deref(), Some("amdgpu"));
+        assert_eq!(g.vram_total, Some(8_589_934_592));
+        assert_eq!(g.vram_used, Some(1_073_741_824));
+        assert_eq!(g.usage_percent, Some(37.0));
+        assert_eq!(g.temperature_c, Some(56.0));
+        std::fs::remove_dir_all(&dev).unwrap();
+    }
+
+    #[test]
+    fn a_card_with_no_sysfs_figures_reports_unknown_rather_than_zero() {
+        let dev = tmp("nvidia");
+        let g = gpu_from("card1", &dev, "DRIVER=nvidia\nPCI_ID=10DE:2504\n");
+        assert_eq!(g.vendor, "NVIDIA");
+        assert_eq!(g.usage_percent, None);
+        assert_eq!(g.vram_total, None);
+        assert_eq!(g.temperature_c, None);
+        std::fs::remove_dir_all(&dev).unwrap();
+    }
+
+    #[test]
+    fn an_unknown_vendor_id_is_reported_as_pci() {
+        let dev = tmp("virtio");
+        let g = gpu_from("card0", &dev, "PCI_ID=1AF4:1050\n");
+        assert_eq!(g.vendor, "PCI");
+        assert_eq!(g.device_id, "1AF4:1050");
+        assert_eq!(g.driver, None);
+        std::fs::remove_dir_all(&dev).unwrap();
     }
 }
 
@@ -313,7 +428,7 @@ pub fn gpus() -> Vec<GpuInfo> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn gpu_from(card: &str, dev: &Path, uevent: &str) -> GpuInfo {
     let device_id = uevent_field(uevent, "PCI_ID=").unwrap_or("-").to_string();
     let vendor = device_id
@@ -345,13 +460,13 @@ fn gpu_from(card: &str, dev: &Path, uevent: &str) -> GpuInfo {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn uevent_field<'a>(uevent: &'a str, key: &str) -> Option<&'a str> {
     uevent.lines().find_map(|line| line.strip_prefix(key))
 }
 
 /// The DRM device's first hwmon temperature, in degrees Celsius.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn gpu_temp(dev: &Path) -> Option<f32> {
     for entry in std::fs::read_dir(dev.join("hwmon")).ok()?.flatten() {
         let text = std::fs::read_to_string(entry.path().join("temp1_input")).ok()?;
