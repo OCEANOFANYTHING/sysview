@@ -5,8 +5,6 @@ use std::thread;
 use std::net::Ipv6Addr;
 #[cfg(any(target_os = "linux", test))]
 use std::path::Path;
-#[cfg(target_os = "linux")]
-use std::path::PathBuf;
 
 use sysinfo::{
     Components, Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, Process, ProcessRefreshKind,
