@@ -1177,8 +1177,9 @@ struct MetricsTemperature {
 struct MetricsIgnored {}
 
 /// Turns the cached snapshot bytes into Prometheus text format. Parses on
-/// demand and retains nothing, so /metrics costs nothing while idle.
-fn json_to_metrics(json: &[u8]) -> String {
+/// demand and retains nothing, so /metrics costs nothing while idle. Also the
+/// engine behind `sysview export --format prometheus`.
+pub(crate) fn json_to_metrics(json: &[u8]) -> String {
     let snap = match serde_json::from_slice::<MetricsSnapshot>(json) {
         Ok(s) => s,
         Err(_) => return "# sysview: snapshot not parseable\n".to_string(),

@@ -1,4 +1,5 @@
 mod collect;
+mod export;
 mod iface;
 mod keys;
 mod model;
@@ -36,6 +37,26 @@ pub enum SortKey {
     Name,
     Uptime,
     Starttime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+pub enum ExportFormat {
+    /// Prometheus text — byte-identical to the dashboard's /metrics
+    Prometheus,
+    /// Comma-separated values, one section per table
+    Csv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+pub enum ExportSection {
+    /// Host, CPU and memory rows (CSV only)
+    Host,
+    /// One row per process
+    Procs,
+    /// One row per mounted volume
+    Disks,
+    /// One row per network interface
+    Net,
 }
 
 #[derive(Parser)]
@@ -119,6 +140,15 @@ pub enum Section {
     Ports,
     /// Battery charge and status (Linux; reads /sys/class/power_supply)
     Battery,
+    /// Export one sample for another tool: Prometheus text or CSV
+    Export {
+        /// Output format
+        #[arg(long, value_enum, default_value_t = ExportFormat::Prometheus)]
+        format: ExportFormat,
+        /// Which table to export (CSV only; Prometheus always exports everything)
+        #[arg(long, value_enum, default_value_t = ExportSection::Host)]
+        section: ExportSection,
+    },
     /// Check live values against thresholds and exit non-zero on a breach
     /// (for cron, CI and monitoring probes)
     Check {
@@ -282,6 +312,10 @@ fn main() {
             run_battery(cli.json);
             return;
         }
+        Some(Section::Export { format, section }) => {
+            run_export(&cli, format, section);
+            return;
+        }
         Some(Section::Serve {
             port,
             bind,
@@ -386,6 +420,7 @@ fn main() {
         // Handled above (returns before this match runs).
         Section::Ports => unreachable!("ports dispatch happens earlier"),
         Section::Battery => unreachable!("battery dispatch happens earlier"),
+        Section::Export { .. } => unreachable!("export dispatch happens earlier"),
         Section::Check { .. } => unreachable!("check dispatch happens earlier"),
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
         Section::Key { .. } => unreachable!("key dispatch happens earlier"),
@@ -773,6 +808,15 @@ fn run_battery(json: bool) {
             println!("battery: {pct}  {state}{left}");
         }
         None => println!("no battery detected (battery reporting is Linux-only)"),
+    }
+}
+
+/// `sysview export …`: one sample in Prometheus text or CSV, for another tool
+/// to ingest (cron, CI, a spreadsheet, a scraper).
+fn run_export(cli: &Cli, format: ExportFormat, section: ExportSection) {
+    match format {
+        ExportFormat::Prometheus => print!("{}", export::prometheus(cli.top.max(1))),
+        ExportFormat::Csv => print!("{}", export::csv(section, cli)),
     }
 }
 
