@@ -237,7 +237,7 @@ pub struct BatteryInfo {
 /// Rolling per-metric history kept server-side. Indexed in time order; the
 /// newest sample is the last element. Every dashboard fetches the same
 /// server-generated arrays, so all devices share identical charts.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct WebHistory {
     pub cpu: Vec<f32>,
     pub mem: Vec<f32>,

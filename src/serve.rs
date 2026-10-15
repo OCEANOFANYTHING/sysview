@@ -53,6 +53,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::collect::{HISTORY_MAX, WebState};
+use crate::history::HistoryFile;
 use crate::keys::{self, KeyStore};
 use crate::model::{MemoryInfo, WebDiskInfo, WebHistory, WebNetworkInfo, WebSnapshot};
 use crate::settings::Settings;
@@ -169,6 +170,9 @@ pub struct ServeConfig {
     pub cors: bool,
     /// Print a QR code for the LAN dashboard URL in the startup banner.
     pub qr: bool,
+    /// Append every sample to this file (opt-in durable history). A restart
+    /// replays its tail, so the charts resume instead of starting blank.
+    pub history_file: Option<PathBuf>,
 }
 
 /// Paths to the PEM-encoded certificate chain and private key used for HTTPS.
@@ -226,6 +230,7 @@ impl Default for ServeConfig {
             tls: None,
             cors: false,
             qr: false,
+            history_file: None,
         }
     }
 }
@@ -551,6 +556,7 @@ impl Server {
             timeouts.idle_grace,
             Arc::clone(&stop),
             cfg.alerts.clone(),
+            cfg.history_file.clone(),
         );
         let tls = match &cfg.tls {
             Some(t) => Some(
@@ -888,6 +894,7 @@ fn start_sampler(
     idle_grace: Duration,
     stop: Arc<AtomicBool>,
     alerts: AlertConfig,
+    history_file: Option<PathBuf>,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("sampler".to_string())
@@ -896,6 +903,14 @@ fn start_sampler(
             let mut st: Option<WebState> = None;
             let mut last_mp = 0usize;
             let mut ring = HistoryRing::new();
+            let mut history = history_file.map(|p| HistoryFile::new(p, HISTORY_MAX));
+            if let Some(h) = history.as_ref() {
+                // Resume the tail of the previous run's window, so a restart
+                // continues the charts instead of blanking them.
+                for (cpu, mem, swap, rx, tx) in h.replay() {
+                    ring.push(cpu, mem, swap, rx, tx);
+                }
+            }
             let mut rules = build_alert_rules(&alerts);
             // With alerts configured the sampler must keep running even with no
             // viewer, or a threshold crossed overnight would never fire. This is
@@ -936,6 +951,15 @@ fn start_sampler(
                         rx,
                         tx,
                     );
+                    if let Some(h) = history.as_mut() {
+                        h.append(
+                            snap.cpu.usage,
+                            snap.memory.used_percent,
+                            swap_percent(&snap.memory),
+                            rx,
+                            tx,
+                        );
+                    }
                     let core_usage: Vec<f32> = snap.cpu.cores.iter().map(|c| c.usage).collect();
                     ring.push_cores(&core_usage);
                     for d in &snap.disks {
@@ -1092,6 +1116,14 @@ fn cap_push<T: Copy>(deq: &mut VecDeque<T>, v: T) {
     if deq.len() > HISTORY_MAX {
         deq.pop_front();
     }
+}
+
+/// Only the `history` field of a cached snapshot. The `/api/history` route
+/// never needs to understand the rest of the payload, and serde ignores the
+/// fields it does not name.
+#[derive(Deserialize)]
+struct HistoryOnly {
+    history: WebHistory,
 }
 
 /// Swap usage as a percentage of total (0 when no swap exists).
@@ -1639,6 +1671,48 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
                             "200 OK",
                             "application/json; charset=utf-8",
                             j.as_slice(),
+                            method == "HEAD",
+                            keep,
+                            acao,
+                        );
+                    }
+                    None => respond(
+                        &mut stream,
+                        "503 Service Unavailable",
+                        "application/json; charset=utf-8",
+                        b"{\"error\":\"warming up\"}",
+                        method == "HEAD",
+                        false,
+                    ),
+                }
+            }
+            ("GET" | "HEAD", "/api/history") => {
+                // The rolling window on its own, for tools that scrape on a
+                // schedule and do not want the whole snapshot. Same data the
+                // dashboard draws, plus the sample spacing to align it.
+                let history = {
+                    let guard = match shared.latest.lock() {
+                        Ok(g) => g,
+                        Err(p) => p.into_inner(),
+                    };
+                    guard
+                        .as_ref()
+                        .and_then(|j| serde_json::from_slice::<HistoryOnly>(j).ok())
+                };
+                mark_watching(&shared);
+                match history {
+                    Some(h) => {
+                        let body = json!({
+                            "interval_secs": shared.interval_secs(),
+                            "window": HISTORY_MAX,
+                            "history": h.history,
+                        })
+                        .to_string();
+                        respond_extra(
+                            &mut stream,
+                            "200 OK",
+                            "application/json; charset=utf-8",
+                            body.as_bytes(),
                             method == "HEAD",
                             keep,
                             acao,

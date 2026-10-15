@@ -1,6 +1,7 @@
 mod collect;
 mod diff;
 mod export;
+mod history;
 mod iface;
 mod keys;
 mod model;
@@ -156,6 +157,9 @@ pub enum ServiceCmd {
     },
 }
 
+// Parsed once at startup and held for the life of the process, so the spread
+// between variant sizes is irrelevant.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Subcommand)]
 pub enum Section {
     /// Full overview of every section
@@ -279,6 +283,9 @@ pub enum Section {
         /// Print a QR code for the LAN dashboard URL (scan it from a phone)
         #[arg(long)]
         qr: bool,
+        /// Append every sample to this file as JSON lines (survives a restart)
+        #[arg(long, value_name = "FILE")]
+        history_file: Option<PathBuf>,
     },
     /// Manage dashboard access keys (add, remove, expiry)
     Key {
@@ -405,6 +412,7 @@ fn main() {
             tls_key,
             cors,
             qr,
+            history_file,
         }) => {
             let alerts = serve::AlertConfig {
                 cpu: alert_cpu,
@@ -431,6 +439,7 @@ fn main() {
                 tls,
                 cors,
                 qr,
+                history_file,
             );
             return;
         }
@@ -544,6 +553,7 @@ fn run_serve(
     tls: Option<serve::TlsFiles>,
     cors: bool,
     qr: bool,
+    history_file: Option<PathBuf>,
 ) {
     let settings_path = paths::settings_file();
     let stored = settings::Settings::load(&settings_path);
@@ -582,6 +592,7 @@ fn run_serve(
         tls,
         cors,
         qr,
+        history_file,
     };
     if let Err(e) = serve::run(cfg) {
         eprintln!("sysview serve: {e}");
