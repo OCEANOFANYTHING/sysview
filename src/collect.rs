@@ -132,19 +132,26 @@ pub fn vmstat(sys: &mut System) -> VmstatInfo {
     sample_cpu_and_processes(sys);
     sys.refresh_memory();
 
-    let mut running = 0usize;
-    let mut blocked = 0usize;
-    for p in sys.processes().values() {
-        match p.status() {
-            sysinfo::ProcessStatus::Run => running += 1,
-            sysinfo::ProcessStatus::UninterruptibleDiskSleep => blocked += 1,
-            _ => {}
+    // Windows reports every process as `Run`, so counting there would just
+    // report the process count; only Unix exposes a real run queue.
+    let (procs_running, procs_blocked) = if cfg!(windows) {
+        (None, None)
+    } else {
+        let mut running = 0usize;
+        let mut blocked = 0usize;
+        for p in sys.processes().values() {
+            match p.status() {
+                sysinfo::ProcessStatus::Run => running += 1,
+                sysinfo::ProcessStatus::UninterruptibleDiskSleep => blocked += 1,
+                _ => {}
+            }
         }
-    }
+        (Some(running), Some(blocked))
+    };
 
     VmstatInfo {
-        procs_running: running,
-        procs_blocked: blocked,
+        procs_running,
+        procs_blocked,
         memory_used: sys.used_memory(),
         memory_total: sys.total_memory(),
         swap_used: sys.used_swap(),

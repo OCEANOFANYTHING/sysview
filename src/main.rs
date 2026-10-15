@@ -646,8 +646,9 @@ fn run_update(check: bool, force: bool) {
 }
 
 /// `sysview check …`: compares live values against thresholds and exits `0`
-/// when every check passes, `1` on any breach. One line per check (or JSON
-/// with `--json`), so it drops straight into cron, CI and monitoring probes.
+/// when every check passes, `1` on any breach, `2` when no threshold could be
+/// evaluated. One line per check (or JSON with `--json`), so it drops straight
+/// into cron, CI and monitoring probes.
 fn run_check(
     cpu: Option<f64>,
     mem: Option<f64>,
@@ -679,6 +680,21 @@ fn run_check(
         }
     }
 
+    // A `check` that compares nothing must not look like a pass: a cron or
+    // probe would go green on a misconfigured or unsupported threshold.
+    if items.is_empty() {
+        eprintln!(
+            "{}",
+            if cpu.is_some() || mem.is_some() || swap.is_some() || disk.is_some() || load.is_some()
+            {
+                "nothing to check: the requested threshold is not available on this platform"
+            } else {
+                "no thresholds given; pass --cpu/--mem/--swap/--disk/--load"
+            }
+        );
+        std::process::exit(2);
+    }
+
     let ok = items.iter().all(|i| i.ok);
     if json {
         let report = model::CheckReport { ok, checks: items };
@@ -686,8 +702,6 @@ fn run_check(
             "{}",
             serde_json::to_string_pretty(&report).unwrap_or_default()
         );
-    } else if items.is_empty() {
-        println!("no thresholds given; pass --cpu/--mem/--swap/--disk/--load");
     } else {
         for i in &items {
             if quiet && i.ok {

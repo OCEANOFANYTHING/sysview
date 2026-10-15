@@ -59,10 +59,18 @@ pub fn system(info: &SystemInfo, opts: &RenderOpts) -> String {
     let mut rows: Vec<(String, String)> = vec![
         ("Hostname".to_string(), value_or(&info.hostname)),
         ("OS".to_string(), os_line(info)),
-        ("Kernel".to_string(), value_or(&info.kernel_version)),
-        ("Arch".to_string(), info.arch.clone()),
-        ("Uptime".to_string(), uptime(info.uptime_secs)),
     ];
+    // On Windows the OS row already carries the build number that
+    // `kernel_version` repeats, so don't print it twice.
+    let kernel_repeats_os = info
+        .kernel_version
+        .as_deref()
+        .is_some_and(|k| info.os_version.as_deref().is_some_and(|v| v.contains(k)));
+    if !kernel_repeats_os {
+        rows.push(("Kernel".to_string(), value_or(&info.kernel_version)));
+    }
+    rows.push(("Arch".to_string(), info.arch.clone()));
+    rows.push(("Uptime".to_string(), uptime(info.uptime_secs)));
     if let Some(la) = &info.load_average {
         rows.push((
             "Load avg".to_string(),
@@ -103,25 +111,29 @@ pub fn memory(info: &MemoryInfo, opts: &RenderOpts) -> String {
         bytes_mode(info.used, opts.units),
         heat(info.used_percent, pct(info.used_percent), opts)
     );
-    let rows = vec![
+    let mut rows = vec![
         ("Total", bytes_mode(info.total, opts.units)),
         ("Used", used_str),
         ("Available", bytes_mode(info.available, opts.units)),
-        ("Free", bytes_mode(info.free, opts.units)),
-        (
-            "Swap",
-            if info.swap_total == 0 {
-                "none".to_string()
-            } else {
-                format!(
-                    "{} / {} ({})",
-                    bytes_mode(info.swap_used, opts.units),
-                    bytes_mode(info.swap_total, opts.units),
-                    pct_of(info.swap_used, info.swap_total)
-                )
-            },
-        ),
     ];
+    // sysinfo's Windows backend returns the same value for free and available,
+    // so a Free row there would only repeat Available.
+    if info.free != info.available {
+        rows.push(("Free", bytes_mode(info.free, opts.units)));
+    }
+    rows.push((
+        "Swap",
+        if info.swap_total == 0 {
+            "none".to_string()
+        } else {
+            format!(
+                "{} / {} ({})",
+                bytes_mode(info.swap_used, opts.units),
+                bytes_mode(info.swap_total, opts.units),
+                pct_of(info.swap_used, info.swap_total)
+            )
+        },
+    ));
     kv_section("Memory", &rows, opts)
 }
 
@@ -200,36 +212,36 @@ pub fn processes(list: &[ProcessInfo], opts: &RenderOpts) -> String {
 }
 
 pub fn vmstat(info: &VmstatInfo, opts: &RenderOpts) -> String {
-    let rows = vec![
-        (
-            "Run/Block",
-            format!("{} / {}", info.procs_running, info.procs_blocked),
+    let mut rows: Vec<(&str, String)> = Vec::new();
+    // Windows has no run queue: sysinfo reports every process as running, so
+    // the collector leaves both counts empty there.
+    if let (Some(running), Some(blocked)) = (info.procs_running, info.procs_blocked) {
+        rows.push(("Run/Block", format!("{running} / {blocked}")));
+    }
+    rows.push((
+        "Memory",
+        format!(
+            "{} / {} ({})",
+            bytes_mode(info.memory_used, opts.units),
+            bytes_mode(info.memory_total, opts.units),
+            pct_of(info.memory_used, info.memory_total)
         ),
-        (
-            "Memory",
+    ));
+    rows.push((
+        "Swap",
+        if info.swap_total == 0 {
+            "none".to_string()
+        } else {
             format!(
                 "{} / {} ({})",
-                bytes_mode(info.memory_used, opts.units),
-                bytes_mode(info.memory_total, opts.units),
-                pct_of(info.memory_used, info.memory_total)
-            ),
-        ),
-        (
-            "Swap",
-            if info.swap_total == 0 {
-                "none".to_string()
-            } else {
-                format!(
-                    "{} / {} ({})",
-                    bytes_mode(info.swap_used, opts.units),
-                    bytes_mode(info.swap_total, opts.units),
-                    pct_of(info.swap_used, info.swap_total)
-                )
-            },
-        ),
-        ("CPU", heat(info.cpu_usage, pct(info.cpu_usage), opts)),
-        ("Uptime", uptime(info.uptime_secs)),
-    ];
+                bytes_mode(info.swap_used, opts.units),
+                bytes_mode(info.swap_total, opts.units),
+                pct_of(info.swap_used, info.swap_total)
+            )
+        },
+    ));
+    rows.push(("CPU", heat(info.cpu_usage, pct(info.cpu_usage), opts)));
+    rows.push(("Uptime", uptime(info.uptime_secs)));
     kv_section("Vmstat", &rows, opts)
 }
 
@@ -429,5 +441,77 @@ fn os_line(info: &SystemInfo) -> String {
         (Some(n), None) => n.clone(),
         (None, Some(v)) => v.clone(),
         (None, None) => "unknown".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts() -> RenderOpts {
+        RenderOpts {
+            no_header: true,
+            color: false,
+            units: UnitMode::Iec,
+        }
+    }
+
+    fn system_info(os_version: &str, kernel_version: &str) -> SystemInfo {
+        SystemInfo {
+            hostname: Some("host".into()),
+            os_name: Some("Windows".into()),
+            os_version: Some(os_version.into()),
+            kernel_version: Some(kernel_version.into()),
+            arch: "x86_64".into(),
+            uptime_secs: 60,
+            load_average: None,
+        }
+    }
+
+    #[test]
+    fn kernel_row_hidden_only_when_it_repeats_the_os_version() {
+        // Windows shape: os_version "10 (19045)" already contains the build.
+        assert!(!system(&system_info("10 (19045)", "19045"), &opts()).contains("Kernel"));
+        // Linux shape: a real, distinct kernel version is still shown.
+        assert!(system(&system_info("12 (bookworm)", "6.1.0-amd64"), &opts()).contains("Kernel"));
+    }
+
+    fn memory_info(free: u64, available: u64) -> MemoryInfo {
+        MemoryInfo {
+            total: 1_000,
+            used: 400,
+            available,
+            free,
+            swap_total: 0,
+            swap_used: 0,
+            used_percent: 40.0,
+        }
+    }
+
+    #[test]
+    fn free_row_hidden_when_it_equals_available() {
+        // Windows reports one value for both.
+        assert!(!memory(&memory_info(600, 600), &opts()).contains("Free"));
+        assert!(memory(&memory_info(500, 600), &opts()).contains("Free"));
+    }
+
+    fn vmstat_info(running: Option<usize>, blocked: Option<usize>) -> VmstatInfo {
+        VmstatInfo {
+            procs_running: running,
+            procs_blocked: blocked,
+            memory_used: 400,
+            memory_total: 1_000,
+            swap_used: 0,
+            swap_total: 0,
+            cpu_usage: 5.0,
+            uptime_secs: 60,
+        }
+    }
+
+    #[test]
+    fn run_block_row_needs_both_counts() {
+        // Windows has no run queue, so the collector reports neither count.
+        assert!(!vmstat(&vmstat_info(None, None), &opts()).contains("Run/Block"));
+        assert!(vmstat(&vmstat_info(Some(2), Some(1)), &opts()).contains("Run/Block"));
     }
 }

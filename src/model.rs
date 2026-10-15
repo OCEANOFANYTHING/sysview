@@ -112,9 +112,10 @@ pub struct ProcessInfo {
 /// vmstat-style one-line summary.
 #[derive(Serialize)]
 pub struct VmstatInfo {
-    /// Runnable + blocked process counts (platform dependent).
-    pub procs_running: usize,
-    pub procs_blocked: usize,
+    /// Runnable process count. `None` on Windows, which has no run queue.
+    pub procs_running: Option<usize>,
+    /// Uninterruptible-sleep process count. `None` on Windows.
+    pub procs_blocked: Option<usize>,
     pub memory_used: u64,
     pub memory_total: u64,
     pub swap_used: u64,
