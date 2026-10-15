@@ -3,8 +3,24 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.2.2` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.2.3` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.2.3] - 2026-10-15
+
+### Changed
+
+- **Leaner per-tick process sampling.** The dashboard's snapshot builder now
+  ranks the raw process handles by CPU first and only turns the top slice into
+  owned `name`/`state`/`user` strings, instead of building every process row and
+  throwing all but the displayed ones away. On a busy host that removes the
+  bulk of the per-second string allocations on the hottest loop. Output is
+  identical — same processes, same order, same values.
+- **Process owners resolved by uid, not by string.** The per-session
+  uid → name map is now keyed by the id value itself, dropping one
+  `to_string()` allocation per process per tick.
+- Dependency refresh (`cc`, `syn`, `unicode-ident`) — build-time only, no
+  runtime or behaviour change.
 
 ## [v0.2.2] - 2026-10-11
 
