@@ -9,6 +9,7 @@ mod qr;
 mod render;
 mod serve;
 mod settings;
+mod top;
 mod update;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -158,6 +159,8 @@ pub enum Section {
         /// Snapshot to compare against; defaults to the live host
         after: Option<PathBuf>,
     },
+    /// Live process monitor: re-sorts and resizes while it runs
+    Top,
     /// Check live values against thresholds and exit non-zero on a breach
     /// (for cron, CI and monitoring probes)
     Check {
@@ -332,6 +335,12 @@ fn main() {
             run_diff(&cli, before, after);
             return;
         }
+        Some(Section::Top) => {
+            if let Err(e) = top::run(&cli) {
+                fail(&format!("sysview top: {e}"));
+            }
+            return;
+        }
         Some(Section::Serve {
             port,
             bind,
@@ -440,6 +449,7 @@ fn main() {
         Section::Battery => unreachable!("battery dispatch happens earlier"),
         Section::Export { .. } => unreachable!("export dispatch happens earlier"),
         Section::Diff { .. } => unreachable!("diff dispatch happens earlier"),
+        Section::Top => unreachable!("top dispatch happens earlier"),
         Section::Check { .. } => unreachable!("check dispatch happens earlier"),
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
         Section::Key { .. } => unreachable!("key dispatch happens earlier"),

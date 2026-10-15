@@ -418,7 +418,8 @@ fn pct_of(part: u64, whole: u64) -> String {
     format!("{:.1}%", part as f64 * 100.0 / whole as f64)
 }
 
-fn uptime(secs: u64) -> String {
+/// Coarse duration for an "up since" line: `3d 4h 10m`, `1h 52m`, `7m`.
+pub fn uptime(secs: u64) -> String {
     let days = secs / 86_400;
     let hours = (secs % 86_400) / 3_600;
     let mins = (secs % 3_600) / 60;

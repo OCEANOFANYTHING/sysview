@@ -809,11 +809,17 @@ fn build_processes(sys: &System, cli: &Cli, uid_names: &HashMap<Uid, String>) ->
         })
         .collect();
 
-    // sort
-    let reverse = cli.reverse;
+    sort_procs(&mut procs, cli.sort, cli.reverse);
+    procs.truncate(cli.top.max(1));
+    procs
+}
+
+/// Orders process rows. The one place the order is decided, so `top` and the
+/// one-shot sections can never disagree.
+pub fn sort_procs(procs: &mut [ProcessInfo], sort: SortKey, reverse: bool) {
+    use std::cmp::Ordering;
     procs.sort_by(|a, b| {
-        use std::cmp::Ordering;
-        let ord = match cli.sort {
+        let ord = match sort {
             SortKey::Cpu => b
                 .cpu_usage
                 .partial_cmp(&a.cpu_usage)
@@ -826,9 +832,88 @@ fn build_processes(sys: &System, cli: &Cli, uid_names: &HashMap<Uid, String>) ->
         };
         if reverse { ord.reverse() } else { ord }
     });
+}
 
-    procs.truncate(cli.top.max(1));
-    procs
+/// One frame of `sysview top`: the header numbers and the sorted rows.
+pub struct TopFrame {
+    pub hostname: String,
+    pub uptime_secs: u64,
+    pub logical_cores: usize,
+    pub cpu_usage: f32,
+    pub memory: MemoryInfo,
+    pub processes: Vec<ProcessInfo>,
+}
+
+/// State kept alive between `top` frames, so each CPU percentage is a delta
+/// against the previous frame instead of the process's whole life.
+pub struct TopState {
+    sys: System,
+    uid_names: HashMap<Uid, String>,
+    hostname: String,
+}
+
+impl TopState {
+    pub fn new() -> Self {
+        let mut sys = System::new();
+        warmup_snapshot(&mut sys);
+        Self {
+            sys,
+            uid_names: uid_name_map(),
+            hostname: System::host_name().unwrap_or_default(),
+        }
+    }
+
+    /// Refreshes and renders nothing: the caller draws one frame per call.
+    /// Sampling is the dashboard's lean pass, so a monitor left open costs
+    /// about what the dashboard costs per tick.
+    pub fn frame(&mut self, sort: SortKey, reverse: bool, top: usize) -> TopFrame {
+        self.sys.refresh_cpu_all();
+        self.sys
+            .refresh_processes_specifics(ProcessesToUpdate::All, true, lean_process_kind());
+        self.sys.refresh_memory();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let uptime = System::uptime();
+        let total_mem = self.sys.total_memory();
+
+        let mut processes: Vec<ProcessInfo> = self
+            .sys
+            .processes()
+            .values()
+            .map(|p| ProcessInfo {
+                pid: p.pid().as_u32(),
+                name: p.name().to_string_lossy().into_owned(),
+                cpu_usage: p.cpu_usage(),
+                memory: p.memory(),
+                memory_percent: if total_mem == 0 {
+                    0.0
+                } else {
+                    p.memory() as f32 * 100.0 / total_mem as f32
+                },
+                user: resolve_user(p, &self.uid_names),
+                start_time_secs: p.start_time(),
+                uptime_secs: uptime.saturating_sub(now.saturating_sub(p.start_time())),
+                parent: p.parent().map(|pid| pid.as_u32()),
+                threads: p.tasks().map(|t| t.len()),
+                state: p.status().to_string(),
+                cmdline: None,
+            })
+            .collect();
+        sort_procs(&mut processes, sort, reverse);
+        processes.truncate(top.max(1));
+
+        TopFrame {
+            hostname: self.hostname.clone(),
+            uptime_secs: uptime,
+            logical_cores: self.sys.cpus().len(),
+            cpu_usage: self.sys.global_cpu_usage(),
+            memory: build_memory(&self.sys),
+            processes,
+        }
+    }
 }
 
 fn resolve_user(p: &Process, uid_names: &HashMap<Uid, String>) -> Option<String> {
