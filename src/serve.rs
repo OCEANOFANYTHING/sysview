@@ -39,7 +39,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -486,12 +486,18 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
                     .map(|t| format!("?token={t}"))
                     .unwrap_or_default();
                 let url = format!("{scheme}://{ip}:{}/{}", cfg.port, suffix);
-                println!("  scan to open on a phone:");
-                // Through anstream so a Windows console gets VT processing and
-                // a pipe gets plain text rather than stray escape codes.
-                let mut out = anstream::stdout();
-                let _ = write!(out, "{}", crate::qr::render(&url));
-                let _ = out.flush();
+                // anstream strips the escapes a pipe would get, and the symbol
+                // is drawn entirely with them: as blank rows, it is worse than
+                // none.
+                if std::io::stdout().is_terminal() {
+                    println!("  scan to open on a phone:");
+                    // Through anstream so a Windows console gets VT processing.
+                    let mut out = anstream::stdout();
+                    let _ = write!(out, "{}", crate::qr::render(&url));
+                    let _ = out.flush();
+                } else {
+                    println!("  (no QR: stdout is not a terminal)");
+                }
             }
             _ => println!("  (no QR: this bind is loopback-only; use --bind 0.0.0.0)"),
         }
