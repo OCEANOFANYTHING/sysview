@@ -234,6 +234,49 @@ pub struct BatteryInfo {
     pub minutes_left: Option<u64>,
 }
 
+/// Linux cgroup v2 view of the process: what the host (or container) actually
+/// allows sysview to use, which the host-wide CPU/memory sections cannot show.
+/// `None` on other platforms and when the host is not on cgroup v2.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CgroupInfo {
+    /// Always 2 for now; the v1 layout differs enough to be a separate job.
+    pub version: u8,
+    /// Path within the cgroup hierarchy, as `/proc/self/cgroup` reports it.
+    pub path: String,
+    /// `cpu.max` quota as a number of cores; `None` when unlimited.
+    pub cpu_max_cores: Option<f64>,
+    /// Total CPU time charged to the cgroup, from `cpu.stat`.
+    pub cpu_usage_secs: Option<f64>,
+    pub memory_current: Option<u64>,
+    /// `None` when the limit is `max` (unlimited).
+    pub memory_max: Option<u64>,
+    pub memory_swap_max: Option<u64>,
+    pub pids_current: Option<u64>,
+    pub pids_max: Option<u64>,
+    /// PSI `avg10` percentages: share of time tasks were stalled.
+    pub pressure_cpu: Option<f64>,
+    pub pressure_memory: Option<f64>,
+    pub pressure_io: Option<f64>,
+}
+
+/// One GPU as the kernel's DRM subsystem exposes it in sysfs.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GpuInfo {
+    /// DRM node name, e.g. `card0`.
+    pub card: String,
+    /// Vendor name where the PCI id is a known one, otherwise `PCI`.
+    pub vendor: String,
+    /// PCI id as `vendor:device` (hex).
+    pub device_id: String,
+    pub driver: Option<String>,
+    /// VRAM and busy-percent are amdgpu-only in sysfs; the proprietary NVIDIA
+    /// driver exposes neither without NVML.
+    pub vram_total: Option<u64>,
+    pub vram_used: Option<u64>,
+    pub usage_percent: Option<f32>,
+    pub temperature_c: Option<f32>,
+}
+
 /// Rolling per-metric history kept server-side. Indexed in time order; the
 /// newest sample is the last element. Every dashboard fetches the same
 /// server-generated arrays, so all devices share identical charts.

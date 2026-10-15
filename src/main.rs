@@ -180,6 +180,10 @@ pub enum Section {
     Vmstat,
     /// Temperatures and hardware sensors (if available)
     Sensors,
+    /// cgroup v2 limits for this process (Linux; containers and services)
+    Cgroup,
+    /// GPUs the kernel reports (Linux; amdgpu and Intel expose usage and VRAM)
+    Gpu,
     /// Listening TCP ports (Linux; reads /proc/net)
     Ports,
     /// Battery charge and status (Linux; reads /sys/class/power_supply)
@@ -498,6 +502,14 @@ fn main() {
         Section::Sensors => {
             let data = collect::sensors();
             emit(&data, |d| render::sensors(d, &opts), cli.json)
+        }
+        Section::Cgroup => {
+            let data = collect::cgroup();
+            emit(&data, |d| render::cgroup(d, &opts), cli.json)
+        }
+        Section::Gpu => {
+            let data = collect::gpus();
+            emit(&data, |d| render::gpus(d, &opts), cli.json)
         }
         // Handled above (returns before this match runs).
         Section::Ports => unreachable!("ports dispatch happens earlier"),

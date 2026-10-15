@@ -265,6 +265,99 @@ pub fn sensors(info: &SensorsInfo, opts: &RenderOpts) -> String {
     table_section("Sensors", &headers, &rows, opts)
 }
 
+/// Linux cgroup limits, or a line explaining why there are none to show.
+pub fn cgroup(info: &Option<CgroupInfo>, opts: &RenderOpts) -> String {
+    let Some(c) = info else {
+        return header("Cgroup", opts) + "  (cgroup v2 is not in use on this host)\n";
+    };
+    let used = |v: Option<u64>, max: Option<u64>| match (v, max) {
+        (Some(u), Some(m)) => {
+            format!(
+                "{} / {}",
+                bytes_mode(u, opts.units),
+                bytes_mode(m, opts.units)
+            )
+        }
+        (Some(u), None) => format!("{} / unlimited", bytes_mode(u, opts.units)),
+        _ => "-".to_string(),
+    };
+    let count = |v: Option<u64>, max: Option<u64>| match (v, max) {
+        (Some(u), Some(m)) => format!("{u} / {m}"),
+        (Some(u), None) => format!("{u} / unlimited"),
+        _ => "-".to_string(),
+    };
+    let pressure = |v: Option<f64>| match v {
+        Some(p) => heat(p as f32, format!("{p:.2}%"), opts),
+        None => "-".to_string(),
+    };
+    let rows = vec![
+        ("Version", format!("v{}", c.version)),
+        ("Path", c.path.clone()),
+        (
+            "CPU limit",
+            match c.cpu_max_cores {
+                Some(n) => format!("{n:.2} cores"),
+                None => "unlimited".to_string(),
+            },
+        ),
+        (
+            "CPU used",
+            match c.cpu_usage_secs {
+                Some(s) => uptime(s as u64),
+                None => "-".to_string(),
+            },
+        ),
+        ("Memory", used(c.memory_current, c.memory_max)),
+        (
+            "Swap limit",
+            match c.memory_swap_max {
+                Some(n) => bytes_mode(n, opts.units),
+                None => "unlimited".to_string(),
+            },
+        ),
+        ("PIDs", count(c.pids_current, c.pids_max)),
+        ("Pressure cpu", pressure(c.pressure_cpu)),
+        ("Pressure mem", pressure(c.pressure_memory)),
+        ("Pressure io", pressure(c.pressure_io)),
+    ];
+    kv_section("Cgroup", &rows, opts)
+}
+
+/// GPUs the kernel exposes, with only the numbers the kernel actually has.
+pub fn gpus(list: &[GpuInfo], opts: &RenderOpts) -> String {
+    if list.is_empty() {
+        return header("GPU", opts) + "  (no GPU reported by the kernel)\n";
+    }
+    let headers = [
+        "Card", "Vendor", "PCI id", "Driver", "VRAM", "Usage", "Temp",
+    ];
+    let rows: Vec<[String; 7]> = list
+        .iter()
+        .map(|g| {
+            [
+                g.card.clone(),
+                g.vendor.clone(),
+                g.device_id.clone(),
+                g.driver.clone().unwrap_or_else(|| "-".to_string()),
+                match (g.vram_used, g.vram_total) {
+                    (Some(u), Some(t)) => format!(
+                        "{} / {}",
+                        bytes_mode(u, opts.units),
+                        bytes_mode(t, opts.units)
+                    ),
+                    _ => "-".to_string(),
+                },
+                match g.usage_percent {
+                    Some(p) => heat(p, format!("{p:.0}%"), opts),
+                    None => "-".to_string(),
+                },
+                opt_temp(g.temperature_c, opts),
+            ]
+        })
+        .collect();
+    table_section("GPU", &headers, &rows, opts)
+}
+
 // --- formatting helpers ----------------------------------------------------
 
 /// Color a percentage-like value: green < 70, yellow < 90, red >= 90.

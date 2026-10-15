@@ -4,7 +4,7 @@ use std::thread;
 #[cfg(target_os = "linux")]
 use std::net::Ipv6Addr;
 #[cfg(target_os = "linux")]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sysinfo::{
     Components, Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, Process, ProcessRefreshKind,
@@ -166,6 +166,200 @@ pub fn sensors() -> SensorsInfo {
     SensorsInfo {
         temperatures: temperatures_of(&Components::new_with_refreshed_list()),
     }
+}
+
+/// The cgroup limits sysview itself runs under. `None` off Linux and on hosts
+/// still using cgroup v1, whose layout is different enough to be its own job.
+pub fn cgroup() -> Option<CgroupInfo> {
+    #[cfg(target_os = "linux")]
+    {
+        let raw = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+        // cgroup v2 has a single entry, `0::/path`; v1 lists one per controller.
+        let path = raw
+            .lines()
+            .find_map(|line| line.strip_prefix("0::"))?
+            .trim()
+            .to_string();
+        let base = PathBuf::from("/sys/fs/cgroup").join(path.trim_start_matches('/'));
+        let cores = std::fs::read_to_string(base.join("cpu.max"))
+            .ok()
+            .and_then(|t| cpu_max_cores(&t));
+        let pressure = |name: &str| {
+            std::fs::read_to_string(base.join(name))
+                .ok()
+                .and_then(|t| pressure_avg10(&t))
+        };
+        Some(CgroupInfo {
+            version: 2,
+            path,
+            cpu_max_cores: cores,
+            cpu_usage_secs: std::fs::read_to_string(base.join("cpu.stat"))
+                .ok()
+                .and_then(|t| stat_value(&t, "usage_usec"))
+                .map(|usec| usec as f64 / 1_000_000.0),
+            memory_current: counter(&base, "memory.current"),
+            memory_max: counter(&base, "memory.max"),
+            memory_swap_max: counter(&base, "memory.swap.max"),
+            pids_current: counter(&base, "pids.current"),
+            pids_max: counter(&base, "pids.max"),
+            pressure_cpu: pressure("cpu.pressure"),
+            pressure_memory: pressure("memory.pressure"),
+            pressure_io: pressure("io.pressure"),
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+/// `cpu.max` is `QUOTA PERIOD` in microseconds, or `max PERIOD` for unlimited.
+/// Kept buildable off Linux so the parsing itself stays unit-testable.
+#[cfg(any(target_os = "linux", test))]
+fn cpu_max_cores(text: &str) -> Option<f64> {
+    let mut fields = text.split_whitespace();
+    let quota = fields.next()?;
+    let period: f64 = fields.next()?.parse().ok()?;
+    if quota == "max" || period <= 0.0 {
+        return None;
+    }
+    Some(quota.parse::<f64>().ok()? / period)
+}
+
+/// One field out of a `key value` file such as `cpu.stat`.
+#[cfg(any(target_os = "linux", test))]
+fn stat_value(text: &str, key: &str) -> Option<u64> {
+    text.lines()
+        .filter_map(|line| line.split_once(char::is_whitespace))
+        .find(|(k, _)| *k == key)
+        .and_then(|(_, v)| v.trim().parse().ok())
+}
+
+/// The `avg10` figure out of a PSI file (`some avg10=0.00 avg60=... total=...`).
+#[cfg(any(target_os = "linux", test))]
+fn pressure_avg10(text: &str) -> Option<f64> {
+    text.split_whitespace()
+        .find_map(|field| field.strip_prefix("avg10="))
+        .and_then(|v| v.parse().ok())
+}
+
+/// A cgroup counter file. `max` (unlimited) reads as absent rather than 0.
+#[cfg(target_os = "linux")]
+fn counter(base: &Path, name: &str) -> Option<u64> {
+    std::fs::read_to_string(base.join(name))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+#[cfg(test)]
+mod cgroup_parse_tests {
+    use super::{cpu_max_cores, pressure_avg10, stat_value};
+
+    #[test]
+    fn cpu_max_reads_a_quota_or_unlimited() {
+        assert_eq!(cpu_max_cores("200000 100000\n"), Some(2.0));
+        assert_eq!(cpu_max_cores("50000 100000"), Some(0.5));
+        assert_eq!(cpu_max_cores("max 100000\n"), None);
+        assert_eq!(cpu_max_cores("200000 0"), None);
+        assert_eq!(cpu_max_cores(""), None);
+    }
+
+    #[test]
+    fn stat_value_picks_its_key_out_of_a_stat_file() {
+        let stat = "usage_usec 1234567\nuser_usec 900000\nsystem_usec 334567\n";
+        assert_eq!(stat_value(stat, "usage_usec"), Some(1234567));
+        assert_eq!(stat_value(stat, "system_usec"), Some(334567));
+        assert_eq!(stat_value(stat, "nope"), None);
+    }
+
+    #[test]
+    fn pressure_reads_avg10_and_ignores_the_rest() {
+        let psi = "some avg10=1.25 avg60=0.40 avg300=0.10 total=99123\n";
+        assert_eq!(pressure_avg10(psi), Some(1.25));
+        assert_eq!(pressure_avg10("garbage"), None);
+    }
+}
+
+/// GPUs the kernel exposes through DRM. Only amdgpu and Intel put usage and
+/// VRAM in sysfs, so a card driven by the proprietary NVIDIA module shows its
+/// identity and driver with no numbers rather than a wrong figure.
+pub fn gpus() -> Vec<GpuInfo> {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(entries) = std::fs::read_dir("/sys/class/drm") else {
+            return Vec::new();
+        };
+        let mut out: Vec<GpuInfo> = entries
+            .flatten()
+            .filter_map(|entry| {
+                let card = entry.file_name().to_string_lossy().into_owned();
+                // `card0` is a device; `card0-DP-1` is a connector.
+                if !card.starts_with("card") || card.contains('-') {
+                    return None;
+                }
+                let dev = entry.path().join("device");
+                let uevent = std::fs::read_to_string(dev.join("uevent")).ok()?;
+                Some(gpu_from(&card, &dev, &uevent))
+            })
+            .collect();
+        out.sort_by(|a, b| a.card.cmp(&b.card));
+        out
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn gpu_from(card: &str, dev: &Path, uevent: &str) -> GpuInfo {
+    let device_id = uevent_field(uevent, "PCI_ID=").unwrap_or("-").to_string();
+    let vendor = device_id
+        .split_once(':')
+        .map(|(v, _)| match v.to_ascii_uppercase().as_str() {
+            "1002" => "AMD",
+            "10DE" => "NVIDIA",
+            "8086" => "Intel",
+            _ => "PCI",
+        })
+        .unwrap_or("PCI")
+        .to_string();
+    let number = |name: &str| -> Option<u64> {
+        std::fs::read_to_string(dev.join(name))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
+    };
+    GpuInfo {
+        card: card.to_string(),
+        vendor,
+        device_id,
+        driver: uevent_field(uevent, "DRIVER=").map(str::to_string),
+        vram_total: number("mem_info_vram_total"),
+        vram_used: number("mem_info_vram_used"),
+        usage_percent: number("gpu_busy_percent").map(|v| v as f32),
+        temperature_c: gpu_temp(dev),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn uevent_field<'a>(uevent: &'a str, key: &str) -> Option<&'a str> {
+    uevent.lines().find_map(|line| line.strip_prefix(key))
+}
+
+/// The DRM device's first hwmon temperature, in degrees Celsius.
+#[cfg(target_os = "linux")]
+fn gpu_temp(dev: &Path) -> Option<f32> {
+    for entry in std::fs::read_dir(dev.join("hwmon")).ok()?.flatten() {
+        let text = std::fs::read_to_string(entry.path().join("temp1_input")).ok()?;
+        if let Ok(milli) = text.trim().parse::<f64>() {
+            return Some((milli / 1000.0) as f32);
+        }
+    }
+    None
 }
 
 /// The handful of live values `sysview check` compares against thresholds.
