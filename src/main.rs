@@ -5,6 +5,7 @@ mod iface;
 mod keys;
 mod model;
 mod paths;
+mod qr;
 mod render;
 mod serve;
 mod settings;
@@ -230,6 +231,9 @@ pub enum Section {
         /// Send CORS headers so the fleet page on another origin can poll here
         #[arg(long)]
         cors: bool,
+        /// Print a QR code for the LAN dashboard URL (scan it from a phone)
+        #[arg(long)]
+        qr: bool,
     },
     /// Manage dashboard access keys (add, remove, expiry)
     Key {
@@ -345,6 +349,7 @@ fn main() {
             tls_cert,
             tls_key,
             cors,
+            qr,
         }) => {
             let alerts = serve::AlertConfig {
                 cpu: alert_cpu,
@@ -370,6 +375,7 @@ fn main() {
                 alerts,
                 tls,
                 cors,
+                qr,
             );
             return;
         }
@@ -480,6 +486,7 @@ fn run_serve(
     alerts: serve::AlertConfig,
     tls: Option<serve::TlsFiles>,
     cors: bool,
+    qr: bool,
 ) {
     let settings_path = paths::settings_file();
     let stored = settings::Settings::load(&settings_path);
@@ -517,6 +524,7 @@ fn run_serve(
         alerts,
         tls,
         cors,
+        qr,
     };
     if let Err(e) = serve::run(cfg) {
         eprintln!("sysview serve: {e}");

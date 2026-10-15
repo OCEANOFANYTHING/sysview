@@ -167,6 +167,8 @@ pub struct ServeConfig {
     /// Send `Access-Control-Allow-Origin: *` on read responses so a fleet page
     /// on another origin can poll this host. Off by default.
     pub cors: bool,
+    /// Print a QR code for the LAN dashboard URL in the startup banner.
+    pub qr: bool,
 }
 
 /// Paths to the PEM-encoded certificate chain and private key used for HTTPS.
@@ -223,6 +225,7 @@ impl Default for ServeConfig {
             alerts: AlertConfig::default(),
             tls: None,
             cors: false,
+            qr: false,
         }
     }
 }
@@ -468,6 +471,25 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
         );
         println!("           this port can read live system stats (and open Settings).");
         println!("           Run `sysview key add` to create one.");
+    }
+    if cfg.qr {
+        match (is_lan_bind(&cfg.bind), detected_lan_ipv4()) {
+            (true, Some(ip)) => {
+                let suffix = cfg
+                    .token
+                    .as_deref()
+                    .map(|t| format!("?token={t}"))
+                    .unwrap_or_default();
+                let url = format!("{scheme}://{ip}:{}/{}", cfg.port, suffix);
+                println!("  scan to open on a phone:");
+                // Through anstream so a Windows console gets VT processing and
+                // a pipe gets plain text rather than stray escape codes.
+                let mut out = anstream::stdout();
+                let _ = write!(out, "{}", crate::qr::render(&url));
+                let _ = out.flush();
+            }
+            _ => println!("  (no QR: this bind is loopback-only; use --bind 0.0.0.0)"),
+        }
     }
     println!("  press Ctrl+C to stop");
 

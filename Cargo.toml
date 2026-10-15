@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 anstream = "1.0.0"
 clap = { version = "4.6.7", features = ["derive"] }
+qrcodegen = "1.8.0"
 # Bundled HTTPS client for `sysview update`: rustls with the compact `ring`
 # provider (much smaller than the default aws-lc-rs, which pulled in a full
 # BoringSSL build and added ~3 MB to the static binary).
