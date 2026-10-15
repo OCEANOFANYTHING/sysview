@@ -8,7 +8,7 @@ use std::path::Path;
 
 use sysinfo::{
     Components, Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, Process, ProcessRefreshKind,
-    ProcessesToUpdate, System, UpdateKind, Users,
+    ProcessesToUpdate, System, Uid, UpdateKind, Users,
 };
 
 use crate::model::*;
@@ -378,7 +378,7 @@ struct HostFacts {
     arch: String,
     cpu_model: String,
     physical_cores: Option<usize>,
-    uid_names: HashMap<String, String>,
+    uid_names: HashMap<Uid, String>,
 }
 
 impl HostFacts {
@@ -484,9 +484,20 @@ fn web_snapshot(
     let total_mem = sys.total_memory();
     let uid_names = &facts.uid_names;
 
-    let mut processes: Vec<WebProcessInfo> = sys
-        .processes()
-        .values()
+    // Rank the raw process handles first and only materialize the top slice, so
+    // the (much larger) remainder is never turned into owned name/state/user
+    // strings just to be dropped by the truncate. Same order as building every
+    // row and sorting after: the comparator is identical.
+    let mut top: Vec<&Process> = sys.processes().values().collect();
+    top.sort_by(|a, b| {
+        b.cpu_usage()
+            .partial_cmp(&a.cpu_usage())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    top.truncate(max_procs.max(1));
+
+    let processes: Vec<WebProcessInfo> = top
+        .into_iter()
         .map(|p| {
             let mem = p.memory();
             WebProcessInfo {
@@ -506,12 +517,6 @@ fn web_snapshot(
             }
         })
         .collect();
-    processes.sort_by(|a, b| {
-        b.cpu_usage
-            .partial_cmp(&a.cpu_usage)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    processes.truncate(max_procs.max(1));
 
     let networks = nets
         .list()
@@ -634,11 +639,11 @@ fn sample_cpu(sys: &mut System) {
 }
 
 /// Builds a map of user id -> user name for process owner resolution.
-fn uid_name_map() -> HashMap<String, String> {
+fn uid_name_map() -> HashMap<Uid, String> {
     let users = Users::new_with_refreshed_list();
     users
         .iter()
-        .map(|u| (u.id().to_string(), u.name().to_string()))
+        .map(|u| (u.id().clone(), u.name().to_string()))
         .collect()
 }
 
@@ -735,11 +740,7 @@ fn build_memory(sys: &System) -> MemoryInfo {
     }
 }
 
-fn build_processes(
-    sys: &System,
-    cli: &Cli,
-    uid_names: &HashMap<String, String>,
-) -> Vec<ProcessInfo> {
+fn build_processes(sys: &System, cli: &Cli, uid_names: &HashMap<Uid, String>) -> Vec<ProcessInfo> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -823,9 +824,10 @@ fn build_processes(
     procs
 }
 
-fn resolve_user(p: &Process, uid_names: &HashMap<String, String>) -> Option<String> {
-    let uid = p.user_id()?;
-    uid_names.get(&uid.to_string()).cloned()
+fn resolve_user(p: &Process, uid_names: &HashMap<Uid, String>) -> Option<String> {
+    // Keyed by the id value itself: no per-process `to_string()` allocation to
+    // build a lookup key (Uid is Hash + Eq on every platform).
+    uid_names.get(p.user_id()?).cloned()
 }
 
 #[cfg(test)]
