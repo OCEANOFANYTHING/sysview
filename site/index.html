@@ -39,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.2.4",
+      "softwareVersion": "0.3.0",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -96,8 +96,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.3.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.3.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -107,7 +107,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.2.4</span>
+      <span class="brand-ver">v0.3.0</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -137,7 +137,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.4 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.3.0 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -598,6 +598,20 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.3.0</b></td>
+                  <td>2026-10-16</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b><code>sysview top</code>.</b> A full-screen process monitor that stays open: <code>c</code>/<code>m</code>/<code>p</code>/<code>n</code> sort, <code>r</code> reverses, <code>+</code>/<code>-</code> resize, <code>q</code> quits. No new dependency (<code>stty</code> on Unix, the C runtime on Windows), and the terminal is restored on exit.</li>
+                      <li><b><code>sysview service install|uninstall|status</code>.</b> Registers the dashboard with whatever the host already runs - a hardened systemd unit, a launchd plist, or a Windows scheduled task - with the token kept where the platform keeps secrets. <code>--print</code> shows the unit and the commands without applying anything; <code>--system</code> installs machine-wide.</li>
+                      <li><b><code>sysview export</code>.</b> Prometheus text or CSV for host, disks, processes or network, rendered by the same code as <code>/metrics</code>, so the CLI and the endpoint cannot disagree.</li>
+                      <li><b><code>sysview diff BEFORE [AFTER]</code>.</b> Host-level comparison between two snapshots or against the live host, including a reboot flag and mounts/interfaces that appeared or disappeared. Reads snapshots even when PowerShell wrote them as UTF-16.</li>
+                      <li><b><code>sysview cgroup</code> and <code>sysview gpu</code></b> (Linux). The cgroup v2 quota, counters and PSI stall pressure the process actually runs under - what a host-wide view cannot show in a container - and the DRM cards the kernel reports, with only the figures sysfs really has.</li>
+                      <li><b><code>serve --history-file</code></b> appends a JSON line per sample and replays the tail on start (trimmed once it has grown past several windows, so it cannot fill a disk); <b><code>/api/history</code></b> serves the rolling window alone; <b><code>serve --qr</code></b> prints a scannable code for the LAN URL.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.2.4</b></td>
                   <td>2026-10-16</td>
                   <td>
@@ -741,7 +755,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.4</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.3.0</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by
