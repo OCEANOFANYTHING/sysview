@@ -3,8 +3,30 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.2.3` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.2.4` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.2.4] - 2026-10-16
+
+### Fixed
+
+- **Platform-meaningless rows are gone from the Windows output.** `sysview sys`
+  no longer prints a `Kernel` line that only repeats the build number already on
+  the OS line, `sysview mem` drops `Free` when the OS reports the same value as
+  `Available`, and `sysview vmstat` omits `Run/Block` — Windows has no run
+  queue, so the row was really printing the process count. `vmstat --json`
+  reports `null` for both counts.
+- **`sysview check` can no longer pass silently.** A check that compares
+  nothing — no threshold given, or one this platform cannot evaluate (such as
+  `--load` on Windows) — now explains itself on stderr and exits `2`. Exit
+  codes are `0` pass, `1` breach, `2` nothing evaluated.
+
+### Changed
+
+- Release notes are always the matching `CHANGELOG.md` section. The publish job
+  now fails when a tag has no section instead of falling back to GitHub's
+  auto-generated commit list; the back catalogue (`v0.1.0` … `v0.1.3`) was
+  republished from the changelog.
 
 ## [v0.2.3] - 2026-10-15
 

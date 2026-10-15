@@ -39,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.2.3",
+      "softwareVersion": "0.2.4",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -96,8 +96,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.3 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.3 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.2.4 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -107,7 +107,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.2.3</span>
+      <span class="brand-ver">v0.2.4</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -137,7 +137,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.3 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.4 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -598,6 +598,17 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.2.4</b></td>
+                  <td>2026-10-16</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Windows output cleaned up.</b> No more rows that only restate another row &mdash; <code>sys</code> drops <code>Kernel</code> when it merely repeats the OS build, <code>mem</code> drops <code>Free</code> when it equals <code>Available</code>, and <code>vmstat</code> omits <code>Run/Block</code> (Windows has no run queue). <code>vmstat --json</code> reports <code>null</code> for both counts.</li>
+                      <li><b>Honest <code>check</code> exit codes.</b> <code>0</code> pass, <code>1</code> breach, <code>2</code> nothing evaluated &mdash; a probe with nothing to compare (no threshold, or one this platform cannot evaluate) explains itself and exits <code>2</code> instead of a silent <code>0</code>.</li>
+                      <li><b>Release notes always match the changelog.</b> The publish job now fails when a tag has no <code>CHANGELOG.md</code> section, so a release can no longer fall back to auto-generated commit lists; the back catalogue was republished from the changelog.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.2.3</b></td>
                   <td>2026-10-15</td>
                   <td>
@@ -730,7 +741,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.3</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.2.4</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by
