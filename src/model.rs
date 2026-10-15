@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Full snapshot used by the default `sysview` overview.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Overview {
     pub system: SystemInfo,
     pub cpu: CpuInfo,
@@ -12,7 +12,7 @@ pub struct Overview {
     pub processes: Vec<ProcessInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SystemInfo {
     pub hostname: Option<String>,
     pub os_name: Option<String>,
@@ -24,14 +24,14 @@ pub struct SystemInfo {
     pub load_average: Option<LoadAvgInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct LoadAvgInfo {
     pub one: f64,
     pub five: f64,
     pub fifteen: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct CpuInfo {
     pub model: String,
     pub physical_cores: Option<usize>,
@@ -41,14 +41,14 @@ pub struct CpuInfo {
     pub cores: Vec<CpuCoreInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct CpuCoreInfo {
     pub name: String,
     pub usage: f32,
     pub frequency_mhz: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MemoryInfo {
     pub total: u64,
     pub used: u64,
@@ -60,7 +60,7 @@ pub struct MemoryInfo {
     pub used_percent: f32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct DiskInfo {
     pub name: String,
     pub mount_point: String,
@@ -75,7 +75,7 @@ pub struct DiskInfo {
     pub read_only: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct NetworkInfo {
     pub name: String,
     /// Total bytes received since boot.
@@ -84,7 +84,7 @@ pub struct NetworkInfo {
     pub transmitted: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
@@ -154,6 +154,31 @@ impl CheckItem {
 pub struct CheckReport {
     pub ok: bool,
     pub checks: Vec<CheckItem>,
+}
+
+/// One metric line of `sysview diff`.
+#[derive(Serialize)]
+pub struct DiffRow {
+    pub metric: String,
+    pub before: f64,
+    pub after: f64,
+    pub delta: f64,
+    /// How to render the values: `bytes`, `percent`, `seconds` or `count`.
+    pub unit: String,
+    /// Percent change against `before`, when `before` is non-zero.
+    pub change_percent: Option<f64>,
+}
+
+/// Result of `sysview diff` (rendered as JSON with `--json`).
+#[derive(Serialize)]
+pub struct DiffReport {
+    /// Where the "before" sample came from (a path, or `live`).
+    pub from: String,
+    pub to: String,
+    /// The host rebooted between the two samples, which resets every
+    /// since-boot counter (so disk and network deltas are not meaningful).
+    pub reboot: bool,
+    pub rows: Vec<DiffRow>,
 }
 
 #[derive(Serialize)]

@@ -1,4 +1,5 @@
 mod collect;
+mod diff;
 mod export;
 mod iface;
 mod keys;
@@ -148,6 +149,13 @@ pub enum Section {
         /// Which table to export (CSV only; Prometheus always exports everything)
         #[arg(long, value_enum, default_value_t = ExportSection::Host)]
         section: ExportSection,
+    },
+    /// Compare a saved snapshot with another (or with the live host)
+    Diff {
+        /// Snapshot to compare from (JSON from `sysview --json`)
+        before: PathBuf,
+        /// Snapshot to compare against; defaults to the live host
+        after: Option<PathBuf>,
     },
     /// Check live values against thresholds and exit non-zero on a breach
     /// (for cron, CI and monitoring probes)
@@ -316,6 +324,10 @@ fn main() {
             run_export(&cli, format, section);
             return;
         }
+        Some(Section::Diff { before, after }) => {
+            run_diff(&cli, before, after);
+            return;
+        }
         Some(Section::Serve {
             port,
             bind,
@@ -421,6 +433,7 @@ fn main() {
         Section::Ports => unreachable!("ports dispatch happens earlier"),
         Section::Battery => unreachable!("battery dispatch happens earlier"),
         Section::Export { .. } => unreachable!("export dispatch happens earlier"),
+        Section::Diff { .. } => unreachable!("diff dispatch happens earlier"),
         Section::Check { .. } => unreachable!("check dispatch happens earlier"),
         Section::Serve { .. } => unreachable!("serve dispatch happens earlier"),
         Section::Key { .. } => unreachable!("key dispatch happens earlier"),
@@ -818,6 +831,30 @@ fn run_export(cli: &Cli, format: ExportFormat, section: ExportSection) {
         ExportFormat::Prometheus => print!("{}", export::prometheus(cli.top.max(1))),
         ExportFormat::Csv => print!("{}", export::csv(section, cli)),
     }
+}
+/// `sysview diff BEFORE.json [AFTER.json]`: what changed between two saved
+/// overviews, or between a saved one and the live host.
+fn run_diff(cli: &Cli, before: PathBuf, after: Option<PathBuf>) {
+    let from = before.display().to_string();
+    let baseline = match diff::load(&before) {
+        Ok(o) => o,
+        Err(e) => fail(&format!("sysview diff: {e}")),
+    };
+    let (to, current) = match after {
+        Some(path) => match diff::load(&path) {
+            Ok(o) => (path.display().to_string(), o),
+            Err(e) => fail(&format!("sysview diff: {e}")),
+        },
+        None => {
+            let mut sys = System::new();
+            ("live".to_string(), collect::overview_with(cli, &mut sys))
+        }
+    };
+    let rep = diff::report(&from, &to, &baseline, &current);
+    let opts = render::RenderOpts::from_cli(cli);
+    let out = emit(&rep, |r| diff::render(r, &opts), cli.json);
+    let mut out_writer = output_stream(cli);
+    let _ = writeln!(out_writer, "{out}");
 }
 
 /// Adapts stdout for the CLI `--color` choice: `auto` enables VT processing
