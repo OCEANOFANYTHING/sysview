@@ -1,5 +1,14 @@
 # sysview
 
+![sysview — system stats at a glance](site/assets/Sysview.png)
+
+[![Release](https://img.shields.io/github/v/release/OCEANOFANYTHING/sysview?sort=semver)](https://github.com/OCEANOFANYTHING/sysview/releases)
+[![Release build](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/release.yml/badge.svg)](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/release.yml)
+[![Site deploy](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/pages.yml/badge.svg)](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/pages.yml)
+[![License: MIT](https://img.shields.io/github/license/OCEANOFANYTHING/sysview)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-informational)](#install)
+[![Downloads](https://img.shields.io/github/downloads/OCEANOFANYTHING/sysview/total)](https://github.com/OCEANOFANYTHING/sysview/releases)
+
 Portable one-shot system stats viewer for Windows, Linux and macOS.
 
 Docs: usage below · site: <https://oceanofanything.github.io/sysview> ·
@@ -610,7 +619,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.2.2 && git push origin v0.2.2
+git tag v0.2.3 && git push origin v0.2.3
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -621,6 +630,7 @@ interval and any token — useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.2.3** | **Leaner polling.** The dashboard's per-tick snapshot ranks raw process handles and only materializes the top rows it actually shows, and resolves process owners by uid instead of a per-process string key — fewer allocations on the hottest loop, with identical output. Dependency refresh. |
 | **v0.2.2** | **Monitoring, hardened.** Threshold **alerts + webhooks** (`--alert-cpu/--alert-mem/--alert-swap/--alert-load/--alert-disk`, ntfy/Slack/Discord/generic `--alert-webhook`) evaluated inside the existing sampler. **Per-key scopes** (`admin`/`view`, `view` gets `403` on every change) and **per-IP brute-force throttling** (`429`). JSON **`/health`** and a scriptable **`sysview check`** that exits non-zero on a breach. Built-in **HTTPS** (`--tls-cert/--tls-key`, no proxy, no new deps). A browser **fleet page** (`/fleet`, opt-in `--cors`) and installable **web app manifest**. **`sysview ports`/`battery`** plus a dashboard panel, all RAM-neutral. |
 | **v0.2.1** | **About half the size, leaner idle.** `sysview update` now builds its bundled HTTPS client on rustls with the compact **`ring`** provider (was `aws-lc-rs`) plus a size-optimised release profile — the static Linux binary drops from 5.1 MB to 2.2 MB (Windows 3.3 MB → 1.8 MB). The background sampler runs on a small capped stack, so it no longer costs a 2 MB huge page on `transparent_hugepage=always` hosts — idle RSS on a 4-core server fell from 4.9 MB to 2.2 MB. No behaviour change to `sysview update`. Website screenshots regenerated as viewport-sized captures. |
 | **v0.2.0** | **Self-update** (`sysview update` + a dashboard button) over a bundled HTTPS client, checksum-verified, no `git`/`curl` needed — token and settings preserved so URLs never change. **Multiple access keys** with labels and expiry (keys file + `SYSVIEW_TOKEN`/`SYSVIEW_KEYS`, `sysview key add/list/rm/expire`), plus a dashboard **Settings** panel for keys, live interval/process-cap/kiosk, network bind/interface/port and updates. **`--interface <name>`** binds to a named adapter's current IPv4. New **CPU-temperature card** and a **load gauge**. |
