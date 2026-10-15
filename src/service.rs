@@ -53,6 +53,9 @@ struct Plan {
     content: String,
     /// Token file, written 0600 where the platform allows it.
     secret: Option<(PathBuf, String)>,
+    /// Set when `content` itself carries the token (the launchd plist), so the
+    /// file must be written 0600 rather than world-readable.
+    private_file: bool,
     commands: Vec<Vec<String>>,
 }
 
@@ -61,6 +64,11 @@ pub fn install(o: &Options, print_only: bool) -> Result<String, String> {
     if print_only {
         let mut s = format!("# {}: {}\n", plan.supervisor, target(&plan));
         if let Some((p, _)) = &plan.secret {
+            s.push_str(&format!("# {} (mode 0600)\n", p.display()));
+        }
+        if plan.private_file
+            && let Some(p) = &plan.file
+        {
             s.push_str(&format!("# {} (mode 0600)\n", p.display()));
         }
         s.push_str(&plan.content);
@@ -77,7 +85,7 @@ pub fn install(o: &Options, print_only: bool) -> Result<String, String> {
         write_file(path, body, true)?;
     }
     if let Some(path) = &plan.file {
-        write_file(path, &plan.content, false)?;
+        write_file(path, &plan.content, plan.private_file)?;
     }
     for cmd in &plan.commands {
         run(cmd).map_err(|e| format!("{e}{}", failure_hint(o.system)))?;
@@ -189,6 +197,7 @@ fn host_for_url(bind: &str, port: u16) -> String {
 }
 
 /// Quotes an argument only where a parser would need it.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 fn quote(arg: &str) -> String {
     if arg.contains([' ', '"', '\'', '\\']) {
         format!("\"{}\"", arg.replace('"', "\\\""))
@@ -197,6 +206,7 @@ fn quote(arg: &str) -> String {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 fn command_line(argv: &[String]) -> String {
     argv.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" ")
 }
@@ -205,10 +215,6 @@ fn command_line(argv: &[String]) -> String {
 
 #[cfg(target_os = "linux")]
 fn platform_plan(o: &Options) -> Plan {
-    let unit = install_files(o.system)
-        .into_iter()
-        .next()
-        .unwrap_or_default();
     let env = env_path(o.system);
     let (wanted, state) = if o.system {
         (
@@ -271,6 +277,7 @@ fn platform_plan(o: &Options) -> Plan {
         file: Some(install_files(o.system).remove(0)),
         content,
         secret: Some((env, format!("SYSVIEW_TOKEN={}\n", o.token))),
+        private_file: false,
         commands: cmds,
     }
 }
@@ -381,6 +388,7 @@ fn platform_plan(o: &Options) -> Plan {
         file: Some(plist),
         content,
         secret: None,
+        private_file: true,
         commands: vec![
             vec!["launchctl".to_string(), "unload".to_string(), path.clone()],
             vec![
@@ -484,6 +492,7 @@ fn platform_plan(o: &Options) -> Plan {
         file: None,
         content: format!("{task}\n\n(registered to run at {when})\n"),
         secret: None,
+        private_file: false,
         commands: vec![cmd],
     }
 }

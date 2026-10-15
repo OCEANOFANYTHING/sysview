@@ -121,6 +121,14 @@ sysview serve --alert-cpu 90 --alert-webhook https://ntfy.sh/mytopic
 sysview key add --expires 30d            Generate an expiring access key
 sysview key add --scope view             Read-only key (403 on changes)
 sysview key list                         List keys (label / masked / expiry)
+sysview top                               Live process monitor (q to quit)
+sysview export --format prometheus        The /metrics body, from the CLI
+sysview export --format csv --section disks
+                                         CSV for one section
+sysview diff before.json                  Compare a snapshot with the live host
+sysview cgroup                            cgroup v2 limits for this process (Linux)
+sysview gpu                               GPUs the kernel reports (Linux)
+sysview service install                   Run the dashboard as an OS service
 sysview update                           Update to the latest release
 ```
 
@@ -566,6 +574,7 @@ so they are never pinned in this doc.
 | `--no-header` | Omit `== Section ==` header lines |
 | `--units <mode>` | Byte units: `iec` (KiB/MiB, default), `si` (kB/MB), `bytes` |
 | `--color <mode>` | `auto` (default; TTY + no `NO_COLOR`), `always`, `never` |
+| `--units <mode>` / `--sort` / `--top` | Also apply to `sysview top` (the live sort/resize keys override them at runtime) |
 
 ### `serve` subcommand options
 
@@ -575,6 +584,8 @@ so they are never pinned in this doc.
 | `--bind <addr>` | Address to bind (default `127.0.0.1` loopback; use `0.0.0.0` for remote, or a specific LAN IP like `192.168.100.114`). If the address isn't on any interface yet — e.g. right after boot, before Wi-Fi/DHCP has an IP — `serve` waits up to 30 s for it and then binds, so a pinned address survives reboots |
 | `--interface <name>` | Bind to a named interface's current IPv4 (e.g. `wlan0`, `en0`, `Wi-Fi`); conflicts with `--bind`. Handy when the address can change between boots |
 | `--max-procs <n>` | Max processes sent to the dashboard (default 100) |
+| `--history-file <file>` | Append every sample to this file as one JSON line (`{"t":…,"cpu":…,"mem":…,"swap":…,"rx":…,"tx":…}`) and replay its tail on start, so the charts resume after a restart. Trimmed to the newest window once it has grown to four of them |
+| `--qr` | Print a scannable QR code for the dashboard URL (token included when set) after the banner |
 | `--token <secret>` | Require `?token=<secret>` or `Authorization: Bearer`. Also accepted from `SYSVIEW_TOKEN` / `SYSVIEW_KEYS`, the keys file, or the dashboard Settings panel |
 | `--kiosk` | Start in kiosk mode (fullscreen, minimal chrome) |
 
@@ -619,17 +630,18 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.2.4 && git push origin v0.2.4
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
 or use `--port` for an ad-hoc check. The startup banner prints the URL, sample
-interval and any token — useful in the systemd journal.
+interval and any token - useful in the systemd journal.
 
 ## Release history
 
 | Release | Highlights |
 |---|---|
+| **v0.3.0** | **Everything a server operator was missing.** `sysview top` - a full-screen process monitor (sort/resize live, `q` quits, dependency-free). `sysview service install\|uninstall\|status` - run the dashboard under systemd, launchd or the Windows Task Scheduler, with the token kept where the platform keeps secrets. `sysview export` (Prometheus or CSV, rendered by the same code as `/metrics`, so the two cannot drift) and `sysview diff` (host-level comparison between snapshots or against the live host, UTF-16 tolerant, with `(new)`/`(gone)` mounts). `sysview cgroup` and `sysview gpu` on Linux - the container's real limits and the kernel's GPU figures, never an invented one. `serve --history-file` keeps the charts across a restart; `/api/history` serves the rolling window alone; `serve --qr` prints a scannable code for the LAN URL. |
 | **v0.2.4** | **Windows output cleaned up.** `sysview sys` no longer prints a `Kernel` row that only restates the OS build, `mem` drops `Free` when it equals `Available`, and `vmstat` omits `Run/Block` (Windows has no run queue; `--json` reports `null`). **Honest `check` exit codes:** `0` pass, `1` breach, `2` nothing evaluated - a probe with nothing to compare no longer exits `0` silently. Release notes now always come from `CHANGELOG.md` (the publish job fails on a missing section), and the `v0.1.0`-`v0.1.3` releases were republished. |
 | **v0.2.3** | **Leaner polling.** The dashboard's per-tick snapshot ranks raw process handles and only materializes the top rows it actually shows, and resolves process owners by uid instead of a per-process string key — fewer allocations on the hottest loop, with identical output. Dependency refresh. |
 | **v0.2.2** | **Monitoring, hardened.** Threshold **alerts + webhooks** (`--alert-cpu/--alert-mem/--alert-swap/--alert-load/--alert-disk`, ntfy/Slack/Discord/generic `--alert-webhook`) evaluated inside the existing sampler. **Per-key scopes** (`admin`/`view`, `view` gets `403` on every change) and **per-IP brute-force throttling** (`429`). JSON **`/health`** and a scriptable **`sysview check`** that exits non-zero on a breach. Built-in **HTTPS** (`--tls-cert/--tls-key`, no proxy, no new deps). A browser **fleet page** (`/fleet`, opt-in `--cors`) and installable **web app manifest**. **`sysview ports`/`battery`** plus a dashboard panel, all RAM-neutral. |

@@ -3,8 +3,56 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.2.4` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.3.0` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.3.0] - 2026-10-16
+
+### Added
+
+- **`sysview top`** — a full-screen process monitor that stays open: `q` quits,
+  `c`/`m`/`p`/`n` sort by CPU, memory, pid or name, `r` flips the direction and
+  `+`/`-` grow or shrink the list. It needs no dependency (`stty` on Unix, the
+  C runtime's `_kbhit`/`_getch` on Windows), restores the terminal on exit even
+  after `Ctrl+C`, and when stdin is not a terminal it simply refreshes without
+  keys.
+- **`sysview service install|uninstall|status`** — registers the dashboard with
+  whichever supervisor the host already has: a systemd unit (same hardening as
+  `scripts/setup-debian.sh`), a launchd plist, or a Windows Task Scheduler task.
+  The service gets its own token, kept where the platform keeps secrets rather
+  than in the process table, and `--print` shows the unit and the commands
+  without touching anything. `--system` installs machine-wide.
+- **`sysview export`** — Prometheus text (`/metrics` format) or CSV for host,
+  disks, processes or network, rendered by the *same* code the HTTP endpoint
+  uses, so the CLI and the dashboard cannot disagree.
+- **`sysview diff BEFORE [AFTER]`** — host-level comparison between two
+  snapshots or against the live host: uptime (plus a reboot flag), CPU, memory,
+  swap and every mount and interface, with mounts and interfaces that appeared
+  or disappeared marked `(new)` / `(gone)`. Reads snapshots saved by `--json`
+  even when PowerShell wrote them as UTF-16.
+- **`sysview cgroup`** (Linux) — the cgroup v2 limits this process actually runs
+  under: `cpu.max` quota, memory and PID counters, and the PSI stall pressure
+  for cpu, memory and io. These are the numbers a host-wide view cannot show on
+  a container, where the host's totals are not what the process can use.
+- **`sysview gpu`** (Linux) — the DRM cards the kernel reports, with only what
+  sysfs really has: amdgpu and Intel publish busy-percent and VRAM, the
+  proprietary NVIDIA module publishes neither, so that card is listed without
+  invented figures.
+- **`serve --history-file FILE`** — appends one compact JSON line per sample and
+  replays the tail on start, so the charts resume after a restart instead of
+  blanking. The file is trimmed to the newest window once it has grown to four
+  of them, so a long-running server cannot fill a disk.
+- **`GET /api/history`** — the rolling window on its own plus the sample
+  spacing, for tools that scrape on a schedule and do not want the whole
+  snapshot.
+- **`serve --qr`** — prints a scannable QR code for the dashboard URL (token
+  included when one is set) after the banner, drawn with ANSI background
+  colours so it scans from a dark or a light terminal.
+
+### Changed
+
+- Process order has a single source of truth (`collect::sort_procs`), so `top`
+  and the one-shot sections cannot drift apart.
 
 ## [v0.2.4] - 2026-10-16
 
