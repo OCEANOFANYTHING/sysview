@@ -19,16 +19,16 @@ pub fn load(path: &Path) -> Result<Overview, String> {
 /// (PowerShell 5.1) or a UTF-8 BOM in the file, so decode before parsing.
 fn decode(bytes: &[u8]) -> String {
     let utf16 = |b: &[u8], le: bool| -> String {
-        let units: Vec<u16> = b
-            .chunks_exact(2)
-            .map(|c| {
-                if le {
-                    u16::from_le_bytes([c[0], c[1]])
-                } else {
-                    u16::from_be_bytes([c[0], c[1]])
-                }
-            })
-            .collect();
+        let mut units = Vec::with_capacity(b.len() / 2);
+        let mut i = 0;
+        while i + 1 < b.len() {
+            units.push(if le {
+                u16::from_le_bytes([b[i], b[i + 1]])
+            } else {
+                u16::from_be_bytes([b[i], b[i + 1]])
+            });
+            i += 2;
+        }
         String::from_utf16_lossy(&units)
     };
     if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
@@ -139,9 +139,12 @@ fn disks_diff(before: &Overview, after: &Overview, rows: &mut Vec<DiffRow>) {
     }
 }
 
+/// Per-interface `(rx, tx)` totals on each side of the comparison.
+type NetPair = (Option<(u64, u64)>, Option<(u64, u64)>);
+
 /// Since-boot byte counters per interface, matched by name.
 fn nets_diff(before: &Overview, after: &Overview, rows: &mut Vec<DiffRow>) {
-    let mut map: BTreeMap<&str, (Option<(u64, u64)>, Option<(u64, u64)>)> = BTreeMap::new();
+    let mut map: BTreeMap<&str, NetPair> = BTreeMap::new();
     for n in &before.networks {
         map.entry(n.name.as_str()).or_default().0 = Some((n.received, n.transmitted));
     }
