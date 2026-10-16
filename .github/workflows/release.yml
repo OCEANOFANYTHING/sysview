@@ -22,19 +22,14 @@ permissions:
 
 jobs:
   # The artifacts are only published when the full suite is green on all three
-  # operating systems.
+  # operating systems. The gate itself is ci.yml, the same file a push to main
+  # runs, so the two can never drift apart.
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo fmt -- --check
-      - run: cargo test --locked
-      - run: cargo clippy --all-targets -- -D warnings
+    uses: ./.github/workflows/ci.yml
+    # release.yml is granted contents: write to publish; the test matrix only
+    # reads the source, so it does not get that.
+    permissions:
+      contents: read
 
   build-linux:
     needs: test
