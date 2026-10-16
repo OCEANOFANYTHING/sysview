@@ -219,7 +219,9 @@ fn platform_plan(o: &Options) -> Plan {
     let (wanted, state) = if o.system {
         (
             "multi-user.target",
-            "DynamicUser=yes\nStateDirectory=sysview\nEnvironment=SYSVIEW_STATE=/var/lib/sysview\n",
+            // MemoryMax matches scripts/setup-debian.sh: the documented
+            // 256 MB ceiling belongs to the machine-wide install.
+            "DynamicUser=yes\nStateDirectory=sysview\nEnvironment=SYSVIEW_STATE=/var/lib/sysview\nMemoryMax=256M\n",
         )
     } else {
         ("default.target", "")

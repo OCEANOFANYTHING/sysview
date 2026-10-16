@@ -39,7 +39,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{IsTerminal, Read, Write};
+use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -486,17 +486,19 @@ pub fn run(cfg: ServeConfig) -> std::io::Result<()> {
                     .map(|t| format!("?token={t}"))
                     .unwrap_or_default();
                 let url = format!("{scheme}://{ip}:{}/{}", cfg.port, suffix);
-                // anstream strips the escapes a pipe would get, and the symbol
-                // is drawn entirely with them: as blank rows, it is worse than
-                // none.
-                if std::io::stdout().is_terminal() {
+                // The symbol is drawn entirely with background escapes, and
+                // anstream strips them from an output that cannot show colour:
+                // as blank rows it is worse than none. Ask anstream itself, so
+                // NO_COLOR and a dumb terminal count too.
+                if anstream::AutoStream::choice(&std::io::stdout()) == anstream::ColorChoice::Never
+                {
+                    println!("  (no QR: no colour here; the URL above works the same)");
+                } else {
                     println!("  scan to open on a phone:");
                     // Through anstream so a Windows console gets VT processing.
                     let mut out = anstream::stdout();
                     let _ = write!(out, "{}", crate::qr::render(&url));
                     let _ = out.flush();
-                } else {
-                    println!("  (no QR: stdout is not a terminal)");
                 }
             }
             _ => println!("  (no QR: this bind is loopback-only; use --bind 0.0.0.0)"),
