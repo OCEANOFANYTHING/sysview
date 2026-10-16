@@ -3,6 +3,7 @@
 ![sysview — system stats at a glance](site/assets/Sysview.png)
 
 [![Release](https://img.shields.io/github/v/release/OCEANOFANYTHING/sysview?sort=semver)](https://github.com/OCEANOFANYTHING/sysview/releases)
+[![CI](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/ci.yml/badge.svg)](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/ci.yml)
 [![Release build](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/release.yml/badge.svg)](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/release.yml)
 [![Site deploy](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/pages.yml/badge.svg)](https://github.com/OCEANOFANYTHING/sysview/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/github/license/OCEANOFANYTHING/sysview)](LICENSE)
