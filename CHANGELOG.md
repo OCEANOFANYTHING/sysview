@@ -3,8 +3,22 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.3.0` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.3.1` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.3.1] - 2026-10-16
+
+### Fixed
+
+- **`serve --qr` no longer prints blank rows into a file or a log.** The symbol
+  is drawn entirely with background colours, and those escapes are stripped from
+  any output that cannot display them — a redirected banner therefore held about
+  twenty-five empty lines. It now asks whether colour is really enabled, so a
+  pipe, a dumb `TERM` or `NO_COLOR` gets one line pointing at the URL instead,
+  and a real terminal still gets the code.
+- **`sysview service install --system` now sets `MemoryMax=256M`**, the ceiling
+  `scripts/setup-debian.sh` has always installed and the docs advertise. The
+  per-user unit is unchanged.
 
 ## [v0.3.0] - 2026-10-16
 

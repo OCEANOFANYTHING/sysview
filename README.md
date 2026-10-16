@@ -630,7 +630,7 @@ bash scripts/build-linux.sh --static            # fully static musl release (see
 > universal) plus checksums to the GitHub Release:
 
 ```bash
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.3.1 && git push origin v0.3.1
 ```
 
 Run the dashboard and verify it live on the default port (`http://127.0.0.1:8080/`),
@@ -641,6 +641,7 @@ interval and any token - useful in the systemd journal.
 
 | Release | Highlights |
 |---|---|
+| **v0.3.1** | **Two rough edges filed off.** `serve --qr` no longer fills a redirected log with blank rows - it prints one line pointing at the URL when the output cannot show colour (a pipe, a dumb `TERM`, `NO_COLOR`), and a real terminal still gets the code. `sysview service install --system` now writes the documented `MemoryMax=256M`, matching `scripts/setup-debian.sh`. |
 | **v0.3.0** | **Everything a server operator was missing.** `sysview top` - a full-screen process monitor (sort/resize live, `q` quits, dependency-free). `sysview service install\|uninstall\|status` - run the dashboard under systemd, launchd or the Windows Task Scheduler, with the token kept where the platform keeps secrets. `sysview export` (Prometheus or CSV, rendered by the same code as `/metrics`, so the two cannot drift) and `sysview diff` (host-level comparison between snapshots or against the live host, UTF-16 tolerant, with `(new)`/`(gone)` mounts). `sysview cgroup` and `sysview gpu` on Linux - the container's real limits and the kernel's GPU figures, never an invented one. `serve --history-file` keeps the charts across a restart; `/api/history` serves the rolling window alone; `serve --qr` prints a scannable code for the LAN URL. |
 | **v0.2.4** | **Windows output cleaned up.** `sysview sys` no longer prints a `Kernel` row that only restates the OS build, `mem` drops `Free` when it equals `Available`, and `vmstat` omits `Run/Block` (Windows has no run queue; `--json` reports `null`). **Honest `check` exit codes:** `0` pass, `1` breach, `2` nothing evaluated - a probe with nothing to compare no longer exits `0` silently. Release notes now always come from `CHANGELOG.md` (the publish job fails on a missing section), and the `v0.1.0`-`v0.1.3` releases were republished. |
 | **v0.2.3** | **Leaner polling.** The dashboard's per-tick snapshot ranks raw process handles and only materializes the top rows it actually shows, and resolves process owners by uid instead of a per-process string key — fewer allocations on the hottest loop, with identical output. Dependency refresh. |
