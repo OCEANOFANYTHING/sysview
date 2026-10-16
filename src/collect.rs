@@ -96,6 +96,7 @@ pub fn networks() -> Vec<NetworkInfo> {
         .iter()
         .map(|(name, data)| NetworkInfo {
             name: name.clone(),
+            kind: crate::iface::classify(name),
             received: data.total_received(),
             transmitted: data.total_transmitted(),
         })
@@ -837,6 +838,7 @@ fn web_snapshot(
         .iter()
         .map(|(name, data)| WebNetworkInfo {
             name: name.clone(),
+            kind: crate::iface::classify(name),
             received: data.total_received(),
             transmitted: data.total_transmitted(),
             rx_bps: data.received() as f64 / dt,

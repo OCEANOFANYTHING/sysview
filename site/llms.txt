@@ -4,7 +4,7 @@
 
 ## About
 
-- Current version: v0.3.1
+- Current version: v0.4.0
 - Platforms: Windows x86_64, Linux x86_64 (musl/glibc), macOS (universal)
 - Binary size: about 1.8 MB (Windows) and 2.2 MB (Linux musl); 3.4 MB macOS universal
 - Idle memory: about 2 MB RSS (roughly half of v0.2.0)

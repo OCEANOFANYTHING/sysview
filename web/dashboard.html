@@ -1318,7 +1318,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
     for (i = 0; i < nets.length; i++) {
       var n = nets[i];
       recordIface(n.name, n.rx_bps || 0, n.tx_bps || 0);
-      nh += "<tr><td>" + esc(n.name) + "</td><td>" + iec(n.received) + "</td><td>" + iec(n.transmitted)
+      nh += "<tr><td>" + esc(n.name + ifaceMark(n.kind)) + "</td><td>" + iec(n.received) + "</td><td>" + iec(n.transmitted)
           + "</td><td>" + fmtRate(n.rx_bps, true) + "</td><td>" + fmtRate(n.tx_bps, true) + "</td>"
           + "<td><span class='duo'><canvas id='ifr" + i + "' class='mini-spark' width='64' height='9'></canvas>"
           + "<canvas id='ift" + i + "' class='mini-spark' width='64' height='9'></canvas></span></td></tr>";
@@ -1759,6 +1759,14 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
   }
   function closeSettings() { $("settingsPanel").className = ""; }
 
+  /* The kind comes from the server (iface::classify); this only spells it out
+     next to the name, marked as the guess it is. */
+  function ifaceMark(kind) {
+    if (kind === "wifi") return " [wifi?]";
+    if (kind === "lan") return " [lan?]";
+    return "";
+  }
+
   function loadSettings() {
     api("GET", "api/settings", null, function (code, j) {
       if (code !== 200 || !j) { spMsg("spLiveMsg", "could not load settings", false); return; }
@@ -1776,7 +1784,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
         var ips = (it.ips && it.ips.length) ? " \u2013 " + it.ips.join(", ") : "";
         var o = document.createElement("option");
         o.value = it.name;
-        o.textContent = it.name + (it.wifi ? " [wifi?]" : "") + ips;
+        o.textContent = it.name + ifaceMark(it.kind) + ips;
         if (j.interface === it.name) o.selected = true;
         sel.appendChild(o);
       }

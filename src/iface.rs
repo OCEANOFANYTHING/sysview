@@ -11,6 +11,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use serde::Serialize;
 use sysinfo::Networks;
 
+use crate::model::IfaceKind;
+
 /// One interface as shown to the operator.
 #[derive(Clone, Debug, Serialize)]
 pub struct Iface {
@@ -20,8 +22,8 @@ pub struct Iface {
     pub ips: Vec<String>,
     /// MAC address (empty when the OS does not report one).
     pub mac: String,
-    /// Best-effort guess that this is a Wi-Fi radio (name heuristics only).
-    pub wifi: bool,
+    /// Best-effort guess at what the adapter is, from its name alone.
+    pub kind: IfaceKind,
 }
 
 impl Iface {
@@ -52,7 +54,7 @@ pub fn list() -> Vec<Iface> {
             let mac = data.mac_address().to_string();
             Iface {
                 name: name.clone(),
-                wifi: likely_wifi(name),
+                kind: classify(name),
                 mac: if mac == "00:00:00:00:00:00" {
                     String::new()
                 } else {
@@ -84,8 +86,7 @@ pub fn describe_all() -> String {
         } else {
             i.ips.join(", ")
         };
-        let wifi = if i.wifi { " [wifi?]" } else { "" };
-        s.push_str(&format!("    {}{}  {}\n", i.name, wifi, ips));
+        s.push_str(&format!("    {}{}  {}\n", i.name, i.kind.marker(), ips));
     }
     s
 }
@@ -101,19 +102,99 @@ fn likely_wifi(name: &str) -> bool {
         || n.contains("wireless")
 }
 
+/// Wired-Ethernet heuristic, kept to names that cannot be anything else.
+///
+/// Bare macOS `en0`/`en1` is deliberately not a match: it is the Wi-Fi radio on
+/// most Macs and the Ethernet port on the desktops, so it is reported as
+/// unknown instead of guessing and being wrong half the time.
+fn likely_lan(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    // Virtual adapters carry "ethernet" in names that are not a NIC.
+    if n.contains("vethernet")
+        || n.contains("virtual")
+        || n.contains("(wsl)")
+        || n.contains("hyper-v")
+    {
+        return false;
+    }
+    n.starts_with("eth") // eth0, and Windows "Ethernet" / "Ethernet 2"
+        || n.contains("local area connection") // legacy Windows naming
+        // Linux predictable Ethernet: eno1, ens5, enp3s0, enx78e7d1ea46da …
+        || (n.starts_with("en") && matches!(n.as_bytes().get(2), Some(b'o' | b's' | b'p' | b'x')))
+}
+
+/// Best guess at what an interface is, from its OS name alone.
+///
+/// Display-only and coarse by design: anything that cannot be told apart (a
+/// bridge, a tunnel, macOS `en0`) stays [`IfaceKind::Other`] rather than being
+/// labelled the wrong thing.
+pub fn classify(name: &str) -> IfaceKind {
+    if likely_wifi(name) {
+        IfaceKind::Wifi
+    } else if likely_lan(name) {
+        IfaceKind::Lan
+    } else {
+        IfaceKind::Other
+    }
+}
+
+/// The `[lan?]`/`[wifi?]` hint, in one place so the CLI, the `--interface`
+/// error listing and the dashboard cannot drift apart. The `?` is the point:
+/// the name is all this is based on.
+impl IfaceKind {
+    pub fn marker(self) -> &'static str {
+        match self {
+            IfaceKind::Wifi => " [wifi?]",
+            IfaceKind::Lan => " [lan?]",
+            IfaceKind::Other => "",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn wifi_heuristic_matches_common_names() {
-        assert!(likely_wifi("wlan0"));
-        assert!(likely_wifi("wlp3s0"));
-        assert!(likely_wifi("wlx3460f9f543f9"));
-        assert!(likely_wifi("Wi-Fi"));
-        assert!(!likely_wifi("eth0"));
-        assert!(!likely_wifi("en0"));
-        assert!(!likely_wifi("lo"));
+    fn classify_reads_the_common_names() {
+        for n in ["wlan0", "wlp3s0", "wlx3460f9f543f9", "Wi-Fi"] {
+            assert_eq!(classify(n), IfaceKind::Wifi, "{n}");
+        }
+        for n in [
+            "eth0",
+            "enp3s0",
+            "eno1",
+            "ens5",
+            "enx78e7d1ea46da",
+            "Ethernet",
+            "Ethernet 2",
+            "Local Area Connection",
+        ] {
+            assert_eq!(classify(n), IfaceKind::Lan, "{n}");
+        }
+        // Tunnels, bridges, virtual switches, and the two names that genuinely
+        // cannot be told apart: macOS en0/en1.
+        for n in [
+            "lo",
+            "en0",
+            "en1",
+            "docker0",
+            "br0",
+            "veth1a2b3c",
+            "utun3",
+            "vEthernet (WSL)",
+            "vEthernet (Default Switch)",
+            "VirtualBox Host-Only Network",
+        ] {
+            assert_eq!(classify(n), IfaceKind::Other, "{n}");
+        }
+    }
+
+    #[test]
+    fn markers_spell_out_that_they_are_a_guess() {
+        assert_eq!(IfaceKind::Wifi.marker(), " [wifi?]");
+        assert_eq!(IfaceKind::Lan.marker(), " [lan?]");
+        assert_eq!(IfaceKind::Other.marker(), "");
     }
 
     #[test]

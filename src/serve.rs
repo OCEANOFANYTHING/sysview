@@ -2836,6 +2836,7 @@ mod tests {
         let nets = vec![
             WebNetworkInfo {
                 name: "eth0".to_string(),
+                kind: crate::model::IfaceKind::Lan,
                 received: 1000,
                 transmitted: 500,
                 rx_bps: 1.5,
@@ -2843,6 +2844,7 @@ mod tests {
             },
             WebNetworkInfo {
                 name: "wlan0".to_string(),
+                kind: crate::model::IfaceKind::Wifi,
                 received: 0,
                 transmitted: 0,
                 rx_bps: 3.5,
@@ -3648,6 +3650,7 @@ mod tests {
             }],
             networks: vec![crate::model::WebNetworkInfo {
                 name: "eth0".to_string(),
+                kind: crate::model::IfaceKind::Lan,
                 received: 99,
                 transmitted: 88,
                 rx_bps: 2.0,

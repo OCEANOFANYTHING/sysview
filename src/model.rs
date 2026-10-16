@@ -78,10 +78,27 @@ pub struct DiskInfo {
 #[derive(Serialize, Deserialize)]
 pub struct NetworkInfo {
     pub name: String,
+    /// Wired/Wi-Fi guess from the name alone, for display only.
+    #[serde(default)]
+    pub kind: IfaceKind,
     /// Total bytes received since boot.
     pub received: u64,
     /// Total bytes transmitted since boot.
     pub transmitted: u64,
+}
+
+/// What an interface looks like it is, as far as its name can say.
+///
+/// A guess is only ever shown next to the name — nothing is hidden or filtered
+/// on it — so `Other` is a normal answer: macOS names both its Ethernet and its
+/// Wi-Fi `en<digit>`, and `en0` is the Wi-Fi radio on most Macs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IfaceKind {
+    Wifi,
+    Lan,
+    #[default]
+    Other,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -315,6 +332,8 @@ pub struct WebDiskInfo {
 #[derive(Serialize)]
 pub struct WebNetworkInfo {
     pub name: String,
+    /// Wired/Wi-Fi guess from the name alone, for the table's `[lan?]` hint.
+    pub kind: IfaceKind,
     /// Total bytes received since boot.
     pub received: u64,
     /// Total bytes transmitted since boot.

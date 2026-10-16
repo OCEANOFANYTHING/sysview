@@ -180,7 +180,9 @@ pub fn networks(list: &[NetworkInfo], opts: &RenderOpts) -> String {
         .iter()
         .map(|n| {
             [
-                n.name.clone(),
+                // The kind hint travels with the name here as it does in the
+                // dashboard; JSON output keeps the two apart.
+                format!("{}{}", n.name, n.kind.marker()),
                 bytes_mode(n.received, opts.units),
                 bytes_mode(n.transmitted, opts.units),
             ]

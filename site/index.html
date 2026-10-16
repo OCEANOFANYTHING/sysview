@@ -39,7 +39,7 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.3.1",
+      "softwareVersion": "0.4.0",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
@@ -96,8 +96,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.3.1 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.3.1 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.4.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.4.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -107,7 +107,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.3.1</span>
+      <span class="brand-ver">v0.4.0</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -137,7 +137,7 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.3.1 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.4.0 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
@@ -220,6 +220,7 @@
               <li>Per-core CPU sparklines, drawn crisply on HiDPI displays</li>
               <li>Shared 240-sample history across every connected device</li>
               <li>CPU-temperature card &amp; load gauge, disk donuts, net/sensor mini-trends, kiosk mode with on-screen exit, retro legacy theme, snapshot JSON download</li>
+              <li>Interface names carry a <code>[lan?]</code> / <code>[wifi?]</code> hint, so a wired adapter is as readable as a wireless one</li>
               <li>Health score badge, disk &ldquo;days until full&rdquo; forecast, timeline markers (<code>M</code>), alert pulses when CPU/mem/swap run hot, and a staleness readout</li>
               <li>Listening-ports &amp; power panel (Linux) and a device-rendered battery state, next to the usual disk donuts and net/sensor trends</li>
               <li><b><code>/fleet</code></b> watches several hosts at once &mdash; add them in the browser, it polls each <code>/api/snapshot</code> and shows up/down, CPU, memory, disk and uptime</li>
@@ -598,6 +599,16 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.4.0</b></td>
+                  <td>2026-10-16</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>LAN is told apart from Wi-Fi.</b> Wi-Fi had a marker and wired adapters had nothing. Every interface now carries a kind guessed from the OS name (<code>eth0</code>, <code>enp3s0</code>, <code>Ethernet</code> &rarr; LAN; <code>wlan0</code>, <code>Wi-Fi</code> &rarr; Wi-Fi) and shows it as a <code>[lan?]</code> / <code>[wifi?]</code> hint in <code>sysview net</code>, the <code>--interface</code> error list, the dashboard network table and the settings picker.</li>
+                      <li><b>Honest about what a name cannot say.</b> macOS <code>en0</code> (Ethernet on desktops, the Wi-Fi radio on most laptops), bridges, tunnels, <code>veth</code> pairs and Windows virtual switches stay unmarked instead of being guessed wrong, nothing is filtered on the kind, and metric labels stay bare so scrapers keep working.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.3.1</b></td>
                   <td>2026-10-16</td>
                   <td>
@@ -765,7 +776,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.3.1</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.4.0</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by

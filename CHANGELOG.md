@@ -3,8 +3,33 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.3.1` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.4.0` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.4.0] - 2026-10-16
+
+### Added
+
+- **Interfaces now say whether they are wired.** Wi-Fi had a marker and LAN had
+  nothing, so a wired adapter looked like an unclassified one. Every interface
+  now carries a kind and shows it as a `[lan?]` / `[wifi?]` hint next to its
+  name: in the `sysview net` table, in the list `--interface` prints when it
+  cannot resolve a name, in the dashboard's network table and in the settings
+  interface picker. The hint comes from the OS name (`eth0`, `enp3s0`, `eno1`,
+  `Ethernet` → LAN; `wlan0`, `wlp3s0`, `Wi-Fi` → Wi-Fi) and is marked as the
+  guess it is.
+- **`kind` in the JSON.** `/api/snapshot` network entries, `/api/interfaces` and
+  `sysview net --json` carry `"kind": "lan" | "wifi" | "other"`, and snapshots
+  saved before this release still load (`other`).
+
+### Notes
+
+- Names that cannot be told apart stay `other` rather than being guessed:
+  macOS `en0`/`en1` (Ethernet on the desktops, the Wi-Fi radio on most laptops),
+  bridges, tunnels, `veth` pairs and Windows virtual switches such as
+  `vEthernet (WSL)`. Nothing is ever hidden or filtered on the kind, and metric
+  labels (`sysview_net_rx_bps{interface="eth0"}`) deliberately stay bare so
+  scrapers keep working.
 
 ## [v0.3.1] - 2026-10-16
 

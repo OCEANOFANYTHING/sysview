@@ -20,6 +20,7 @@ dependencies. It has two front-ends:
 |---|---|
 | `src/main.rs` | clap CLI + section dispatch; shared globals (`--interval`, `--sort`, …) |
 | `src/collect.rs` | sampling: `WebState`, lean warmup, `HostFacts` cache, snapshots |
+| `src/iface.rs` | interface listing for `--interface` and the settings picker, incl. the `[lan?]`/`[wifi?]` name guess |
 | `src/model.rs` | all serialized types (one-shot + dashboard) |
 | `src/render.rs` | terminal output (human + JSON) |
 | `src/serve.rs` | HTTP server, sampler thread, history ring, `/metrics` |
