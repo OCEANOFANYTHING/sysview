@@ -14,8 +14,7 @@ Releases are tagged `v0.1.0` … `v0.5.0` with prebuilt binaries on the
   needs no token; `/api/settings`, `/api/interfaces`, the key routes,
   `/api/update`, `/api/restart` and every `POST` answer `403`, and no token
   reopens them. The snapshot leaves out listening ports and process owners, and
-  the page hides the settings button and the User column. A live one runs at
-  <https://server.ndcompany.in>.
+  the page hides the settings button and the User column.
 - **Linux ARM binary.** Releases now ship `sysview-linux-aarch64-musl` (static,
   for Graviton, Ampere and 64-bit Raspberry Pi). `sysview update` already asked
   for that name on ARM and found nothing.

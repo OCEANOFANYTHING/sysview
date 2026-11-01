@@ -453,9 +453,9 @@ sysview serve --public --port 8097 --history-file /var/lib/sysview/history.jsonl
 
 Process names, mounts, interfaces and the hostname stay visible, because that
 is what the dashboard is for. Keep the server on loopback and publish it through
-a reverse proxy or tunnel that adds TLS and rate limits;
-[server.ndcompany.in](https://server.ndcompany.in) runs exactly this behind a
-Cloudflare Tunnel.
+a reverse proxy or tunnel that adds TLS and rate limits. To keep it to
+yourself, put a login in front at the proxy (Cloudflare Access with an emailed
+one-time code works well) rather than handing out access keys.
 
 ### Self-update
 
