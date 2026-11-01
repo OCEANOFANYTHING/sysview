@@ -39,12 +39,12 @@
       "description": "Portable system stats viewer for Windows, Linux and macOS. One binary: CLI overview, live web dashboard, Prometheus metrics — no runtime, no dependencies.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Windows, Linux, macOS",
-      "softwareVersion": "0.4.0",
+      "softwareVersion": "0.5.0",
       "releaseNotes": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "downloadUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "installUrl": "https://github.com/OCEANOFANYTHING/sysview/releases",
       "license": "https://github.com/OCEANOFANYTHING/sysview/blob/main/LICENSE",
-      "dateModified": "2026-10-15",
+      "dateModified": "2026-11-01",
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
       "author": { "@type": "Organization", "name": "N&D Co — Brand & Growth Agency", "url": "https://ndcompany.in" },
       "publisher": { "@type": "Organization", "name": "N&D Co — Brand & Growth Agency", "url": "https://ndcompany.in" }
@@ -96,8 +96,8 @@
 <!-- ============ MARQUEE ============ -->
 <div class="marquee" aria-hidden="true">
   <div class="marquee-track">
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.4.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
-    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.4.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.5.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
+    <span class="m-cr">* HOT NEW *</span><span class="m-cw">SYSVIEW 0.5.0 IS NOW ONLINE</span><span class="m-cy">100% ONE STATIC BINARY</span><span class="m-cb">NO RUNTIME</span><span class="m-cg">NO FRAMEWORK</span><span class="m-co">NO INSTALLER</span><span class="m-cm">TOKEN-LOCKED DASHBOARD</span><span class="m-cw">TERMINAL + BROWSER + LAN</span><span class="m-cy">SPONSORED BY N&amp;D CO</span>
   </div>
 </div>
 
@@ -107,7 +107,7 @@
     <a class="brand" href="#top" aria-label="sysview home">
       <img class="br-logo" src="assets/brand-64.png" width="26" height="26" alt="sysview logo" aria-hidden="true">
       <span>SYSVIEW</span>
-      <span class="brand-ver">v0.4.0</span>
+      <span class="brand-ver">v0.5.0</span>
     </a>
     <button class="nav-toggle btn" id="navToggle" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">MENU</button>
     <div class="nav-links" id="navLinks">
@@ -137,8 +137,9 @@
         metrics</b> &mdash; with no runtime, no framework and no installer.
         Download once, run forever.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.4.0 <span class="new-badge">NEW!</span></a>
+        <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.5.0 <span class="new-badge">NEW!</span></a>
         <a class="btn btn-lg" href="#quickstart">Quick start</a>
+        <a class="btn btn-lg" href="https://server.ndcompany.in" target="_blank" rel="noopener">Live demo</a>
         <a class="btn btn-green btn-lg" href="https://oceanofanything.github.io/sysview/" target="_blank" rel="noopener">Read the docs</a>
       </div>
       <p class="sponsor-line">This page is <b>sponsored &amp; developed by</b>
@@ -599,6 +600,17 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
               </thead>
               <tbody>
                 <tr>
+                  <td><b>v0.5.0</b></td>
+                  <td>2026-11-01</td>
+                  <td>
+                    <ul class="rel">
+                      <li><b>Public read-only dashboard.</b> <code>serve --public</code> opens reading to anyone, refuses every settings, key, update and restart route whatever token is sent, and leaves listening ports and process owners out. See it live at <a href="https://server.ndcompany.in" target="_blank" rel="noopener">server.ndcompany.in</a>.</li>
+                      <li><b>Linux ARM binary.</b> <code>sysview-linux-aarch64-musl</code> for Graviton, Ampere and 64-bit Raspberry Pi.</li>
+                      <li><b>Hardening.</b> Bearer tokens keep their case, oversized or chunked requests are refused, slow heads are cut off, <code>update</code> refuses a binary it cannot verify, the history file stays bounded across restarts, and the dashboard backs off while the server is down.</li>
+                    </ul>
+                  </td>
+                </tr>
+                <tr>
                   <td><b>v0.4.0</b></td>
                   <td>2026-10-16</td>
                   <td>
@@ -776,7 +788,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
           Boot-proof systemd unit. The dashboard survives power outages &mdash;
           you just watch it come back.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.4.0</a>
+          <a class="btn btn-primary btn-lg" href="https://github.com/OCEANOFANYTHING/sysview/releases" target="_blank" rel="noopener">Download v0.5.0</a>
           <a class="btn btn-green btn-lg" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">Fork me on GitHub</a>
         </div>
         <p class="sponsor-line">Sponsored &amp; developed by
@@ -821,7 +833,7 @@ sysview_processes 96</code><button class="copy" aria-label="Copy">Copy</button><
       <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &mdash;
       a brand &amp; growth agency. Built with Rust; no runtime, no framework,
       no build step for users. Written from scratch; made to stay out of your way.</p>
-    <p class="copyright">&copy; 1997-<span id="year">2026</span> SYSVIEW. All rights reserved. &bull; webmaster: <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &bull; page updated: 2026-10-11</p>
+    <p class="copyright">&copy; 1997-<span id="year">2026</span> SYSVIEW. All rights reserved. &bull; webmaster: <a href="https://ndcompany.in" target="_blank" rel="noopener">N&amp;D Co</a> &bull; page updated: 2026-11-01</p>
     <p class="totop"><a class="btn" href="#top">&#9650; Back to top</a></p>
   </div>
 </footer>

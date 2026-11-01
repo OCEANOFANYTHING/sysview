@@ -3,8 +3,55 @@
 All notable changes to **sysview** are documented here, newest first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Releases are tagged `v0.1.0` … `v0.4.0` with prebuilt binaries on the
+Releases are tagged `v0.1.0` … `v0.5.0` with prebuilt binaries on the
 [GitHub Releases](https://github.com/OCEANOFANYTHING/sysview/releases) page.
+
+## [v0.5.0] - 2026-11-01
+
+### Added
+
+- **`serve --public`: a dashboard you can put on the open internet.** Reading
+  needs no token; `/api/settings`, `/api/interfaces`, the key routes,
+  `/api/update`, `/api/restart` and every `POST` answer `403`, and no token
+  reopens them. The snapshot leaves out listening ports and process owners, and
+  the page hides the settings button and the User column. A live one runs at
+  <https://server.ndcompany.in>.
+- **Linux ARM binary.** Releases now ship `sysview-linux-aarch64-musl` (static,
+  for Graviton, Ampere and 64-bit Raspberry Pi). `sysview update` already asked
+  for that name on ARM and found nothing.
+
+### Fixed
+
+- **Bearer tokens with capital letters were rejected.** The whole
+  `Authorization` line was lowercased before the token was cut out of it, so
+  `--token MySecret` never matched the header (the `?token=` form worked).
+- **A request head over 16 KB is refused with `431` and the connection
+  closed.** It used to be answered as a request, leaving the unread rest to be
+  parsed as the next request on the same connection (behind a proxy that reuses
+  connections, someone else's).
+- **A `Transfer-Encoding` body is refused with `501`.** Bodies are framed by
+  `Content-Length` only, so a chunked body was left on the socket to be read as
+  the next request.
+- **A head that trickles in a byte at a time is cut off after 10 s.** The read
+  timeout applied per read, so a slow client could hold a connection slot
+  indefinitely.
+- **A `POST` body shorter than its `Content-Length` is refused** instead of
+  being handed on truncated.
+- **`sysview update` fails closed.** A missing `SHA256SUMS`, a failed download
+  of it or no line for the binary used to skip the check and install anyway.
+- **Restart from the dashboard works when `serve` runs from a shell on a
+  systemd machine.** Any host with `/run/systemd/system` was taken for a
+  systemd service, so the process exited and nothing restarted it.
+- **`--history-file` stays bounded across restarts.** The trim counter started
+  at zero on every start, so a server restarted more often than the trim
+  interval grew the file forever.
+- **With HTTPS on, a connection over the limit is closed** instead of getting a
+  plaintext `503` the client reads as a TLS error.
+- **Dashboard:** a `503` that lasts longer than a warm-up now shows as offline
+  (the dot stayed green on frozen numbers); retries back off from 3 s to 30 s
+  with jitter instead of every 3 s forever; returning to the tab no longer
+  starts a second polling loop; interfaces that disappear (container `veth`s)
+  are dropped from the per-interface history; `esc()` also escapes `'`.
 
 ## [v0.4.0] - 2026-10-16
 
