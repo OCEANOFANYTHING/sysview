@@ -120,6 +120,12 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// Per-write cutoff: a client that stops draining a response is dropped.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Longest a request head may take to arrive, however it trickles in.
+const HEAD_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Largest request head accepted; anything longer is answered 431.
+const MAX_HEAD: usize = 16 * 1024;
+
 /// Per-connection timing knobs. Tests shrink these so idle gating, read
 /// timeouts and warm-up rebuilds complete in milliseconds instead of seconds;
 /// production always uses [`Timeouts::default`] (the constants above).
@@ -173,6 +179,10 @@ pub struct ServeConfig {
     /// Append every sample to this file (opt-in durable history). A restart
     /// replays its tail, so the charts resume instead of starting blank.
     pub history_file: Option<PathBuf>,
+    /// Public read-only dashboard: no token needed to read, every admin route
+    /// (settings, keys, update, restart, interfaces) refused, and the snapshot
+    /// drops listening ports and process owners.
+    pub public: bool,
 }
 
 /// Paths to the PEM-encoded certificate chain and private key used for HTTPS.
@@ -231,6 +241,7 @@ impl Default for ServeConfig {
             cors: false,
             qr: false,
             history_file: None,
+            public: false,
         }
     }
 }
@@ -288,6 +299,8 @@ struct Shared {
     interface: Option<String>,
     /// Emit `Access-Control-Allow-Origin: *` on read responses (opt-in).
     cors: bool,
+    /// Public read-only mode (see [`ServeConfig::public`]).
+    public: bool,
     /// Test-only observability: true while the sampler is actively sampling,
     /// false once it has dropped the state for idle. In production the
     /// observable signal is the payload 503/200 transition.
@@ -553,6 +566,7 @@ impl Server {
             port: cfg.port,
             interface: cfg.interface.clone(),
             cors: cfg.cors,
+            public: cfg.public,
             #[cfg(test)]
             sampling: AtomicBool::new(false),
             #[cfg(test)]
@@ -610,14 +624,18 @@ impl Server {
                         self.shared.conns.fetch_sub(1, Ordering::SeqCst);
                         #[cfg(test)]
                         self.shared.rejected.fetch_add(1, Ordering::Relaxed);
-                        respond(
-                            &mut s,
-                            "503 Service Unavailable",
-                            "text/plain; charset=utf-8",
-                            b"too many connections",
-                            false,
-                            false,
-                        );
+                        // A plaintext reply on a TLS socket is a protocol
+                        // error to the client; just close it there.
+                        if self.tls.is_none() {
+                            respond(
+                                &mut s,
+                                "503 Service Unavailable",
+                                "text/plain; charset=utf-8",
+                                b"too many connections",
+                                false,
+                                false,
+                            );
+                        }
                         continue;
                     }
                     let shared = Arc::clone(&self.shared);
@@ -683,7 +701,17 @@ impl Server {
 
 /// Injects the runtime config (poll interval, kiosk) into the static page.
 fn render_dashboard(cfg: &ServeConfig) -> String {
-    render_dashboard_parts(cfg.interval_secs, cfg.kiosk)
+    let html = render_dashboard_parts(cfg.interval_secs, cfg.kiosk);
+    if cfg.public {
+        // The page hides its settings button and shows the public footer.
+        html.replacen(
+            "<body class=\"dashboard",
+            "<body class=\"public dashboard",
+            1,
+        )
+    } else {
+        html
+    }
 }
 
 /// Renders the page for a given interval/kiosk combination. Re-runnable when
@@ -974,6 +1002,14 @@ fn start_sampler(
                         ring.push_disk(&d.mount_point, disk_used_percent(d));
                     }
                     snap.history = ring.to_web();
+                    if shared.public {
+                        // A map of open ports and account names helps an
+                        // attacker more than it helps a visitor.
+                        snap.listening.clear();
+                        for p in &mut snap.processes {
+                            p.user = None;
+                        }
+                    }
                     if alerts_on {
                         let host = snap.system.hostname.as_deref().unwrap_or("host");
                         evaluate_alerts(&alerts, &mut rules, &snap, host);
@@ -1470,7 +1506,13 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
     loop {
         // Read until at least one full head (header terminator) is buffered,
         // or a sane cap is exceeded (a head was malformed / never terminated).
-        while find_terminator(&rest).is_none() && rest.len() <= 16 * 1024 {
+        // The read timeout is per read, so a client trickling a byte at a time
+        // is also cut off by a deadline for the whole head (slowloris).
+        let started = Instant::now();
+        while find_terminator(&rest).is_none() && rest.len() <= MAX_HEAD {
+            if started.elapsed() > HEAD_DEADLINE {
+                return;
+            }
             let mut chunk = [0u8; 2048];
             match stream.read(&mut chunk) {
                 Ok(0) => return, // client closed the connection
@@ -1479,12 +1521,37 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
             }
         }
 
-        let head = match find_terminator(&rest) {
-            Some(p) => rest.drain(..p + 4).collect::<Vec<u8>>(),
-            None => std::mem::take(&mut rest), // over cap: treat it all as the head
+        let Some(end) = find_terminator(&rest) else {
+            // Over the cap with no end in sight. Answering it as a request
+            // would leave the unread tail to be parsed as the next request on
+            // a proxy's shared connection, so refuse it and close.
+            respond(
+                &mut stream,
+                "431 Request Header Fields Too Large",
+                "text/plain; charset=utf-8",
+                b"request head too large",
+                false,
+                false,
+            );
+            discard_unread(&mut stream);
+            return;
         };
+        let head = rest.drain(..end + 4).collect::<Vec<u8>>();
 
         let text = String::from_utf8_lossy(&head);
+        // Bodies are framed by Content-Length only. A chunked body would be
+        // left on the socket and read as the next request, so refuse it.
+        if header_value(&text, "transfer-encoding").is_some() {
+            respond(
+                &mut stream,
+                "501 Not Implemented",
+                "text/plain; charset=utf-8",
+                b"chunked bodies are not supported",
+                false,
+                false,
+            );
+            return;
+        }
         let keep = wants_keep_alive(&text);
         let req_line = text.lines().next().unwrap_or("").trim();
         let mut parts = req_line.split_whitespace();
@@ -1576,6 +1643,20 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
             Vec::new()
         };
 
+        // Public mode: anyone may read, nobody may change anything. Refused
+        // before the auth gate so no key, however strong, reopens these.
+        if shared.public && (requires_admin(method, path) || path == "/api/interfaces") {
+            respond(
+                &mut stream,
+                "403 Forbidden",
+                "text/plain; charset=utf-8",
+                b"read-only public dashboard",
+                false,
+                false,
+            );
+            return;
+        }
+
         // Auth gate: any configured, unexpired key (env, file, or --token) is
         // accepted; the compare itself is constant-time inside the store. A
         // `view` key may read; state-changing routes require an `admin` key.
@@ -1592,7 +1673,7 @@ fn handle_conn<S: Read + Write>(mut stream: S, shared: Arc<Shared>, peer: IpAddr
                 header_token(&text)
             }
         };
-        if shared.store.has_any(now) {
+        if !shared.public && shared.store.has_any(now) {
             match shared.store.authorize(&supplied, now) {
                 Some(scope) => {
                     shared.auth_succeeded(peer);
@@ -2014,6 +2095,21 @@ fn respond_extra<W: Write>(
 const MAX_BODY: usize = 64 * 1024;
 
 /// First value of a header, matched case-insensitively.
+/// Reads and drops what the client is still sending (bounded), so closing
+/// right after an error response does not reset the connection before the
+/// client has read that response.
+fn discard_unread<R: Read>(stream: &mut R) {
+    let start = Instant::now();
+    let mut drained = 0usize;
+    let mut chunk = [0u8; 2048];
+    while drained < 64 * 1024 && start.elapsed() < Duration::from_secs(1) {
+        match stream.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => drained += n,
+        }
+    }
+}
+
 fn header_value<'a>(head: &'a str, name: &str) -> Option<&'a str> {
     for line in head.lines().skip(1) {
         if let Some((k, v)) = line.split_once(':')
@@ -2053,6 +2149,9 @@ fn read_body<R: Read>(head: &str, rest: &mut Vec<u8>, stream: &mut R) -> Result<
             }
             Err(_) => break,
         }
+    }
+    if body.len() < len {
+        return Err(()); // the client stopped short of its Content-Length
     }
     Ok(body)
 }
@@ -2140,8 +2239,10 @@ fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
 /// uses `Restart=always`, so exiting is enough (and preserves the unit's
 /// sandbox); elsewhere a fresh copy is spawned before exiting.
 fn restart_self() -> ! {
-    let under_systemd =
-        std::env::var_os("INVOCATION_ID").is_some() || Path::new("/run/systemd/system").exists();
+    // INVOCATION_ID is set for systemd services only. `/run/systemd/system`
+    // exists on any systemd host, so a `serve` run from a shell used to exit
+    // here with nothing to bring it back.
+    let under_systemd = std::env::var_os("INVOCATION_ID").is_some();
     if !under_systemd && let Ok(exe) = std::env::current_exe() {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let _ = Command::new(exe).args(args).spawn();
@@ -2554,12 +2655,19 @@ fn query_token(query: &str) -> String {
 
 /// Looks for an `Authorization: Bearer <token>` header (case-insensitive key).
 fn header_token(head: &str) -> String {
+    // Match the header name and scheme case-insensitively, but slice the
+    // token from the original line: tokens are case-sensitive.
     for line in head.lines() {
-        let lower = line.to_ascii_lowercase();
-        if let Some(rest) = lower.strip_prefix("authorization:")
-            && let Some(v) = rest.trim().strip_prefix("bearer ")
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if name.trim().eq_ignore_ascii_case("authorization")
+            && value.len() > 7
+            && value.is_char_boundary(7)
+            && value[..7].eq_ignore_ascii_case("bearer ")
         {
-            return v.trim().to_string();
+            return value[7..].trim().to_string();
         }
     }
     String::new()
@@ -2655,6 +2763,7 @@ mod tests {
         assert_eq!(header_token("Authorization: Basic abc"), ""); // wrong scheme
         assert_eq!(header_token(""), "");
         assert_eq!(header_token("X-Custom: Bearer nope"), ""); // wrong header
+        assert_eq!(header_token("AUTHORIZATION: BEARER MiXeD9"), "MiXeD9"); // token keeps its case
     }
 
     #[test]
@@ -3880,6 +3989,46 @@ mod tests {
         }
     }
 
+    #[test]
+    fn public_mode_reads_open_and_refuses_every_change() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let addr = listener.local_addr().expect("local addr");
+        let cfg = ServeConfig {
+            port: addr.port(),
+            interval_secs: 0.05,
+            max_procs: 20,
+            token: Some("s3cret".into()),
+            public: true,
+            ..ServeConfig::default()
+        };
+        let server =
+            Arc::new(Server::start_with_timeouts(&cfg, test_timeouts()).expect("start server"));
+        let accept = Arc::clone(&server);
+        thread::spawn(move || accept.accept_loop(listener));
+        wait_for_payload(addr, &server, None, "public payload");
+        wait_until("public snapshot 200", Duration::from_secs(10), || {
+            http_get(addr, "/api/snapshot").status == 200
+        });
+        let snap = String::from_utf8(http_get(addr, "/api/snapshot").body).unwrap();
+        assert!(snap.contains("\"listening\":[]"), "ports leaked");
+        assert!(!snap.contains("\"user\":\""), "process owners leaked");
+        let page = String::from_utf8(http_get(addr, "/").body).unwrap();
+        assert!(page.contains("<body class=\"public dashboard\""));
+        for target in ["/api/settings", "/api/interfaces"] {
+            assert_eq!(
+                http_get(addr, &format!("{target}?token=s3cret")).status,
+                403
+            );
+        }
+        for path in ["/api/settings", "/api/keys", "/api/update", "/api/restart"] {
+            let mut s = tcp_connect(addr);
+            let req = format!("POST {path}?token=s3cret HTTP/1.1\r\nContent-Length: 2\r\n\r\n{{}}");
+            s.write_all(req.as_bytes()).unwrap();
+            assert_eq!(read_one_response(&mut s).status, 403, "{path} not refused");
+        }
+        server.stop.store(true, Ordering::SeqCst);
+    }
+
     // --- robustness ----------------------------------------------------------
 
     #[test]
@@ -3894,6 +4043,10 @@ mod tests {
             ("GET /../etc/passwd HTTP/1.1\r\n\r\n", 400),
             ("GET /%2e%2e/etc/passwd HTTP/1.1\r\n\r\n", 400),
             ("GET /api/snapshot HTTP/1.1 EXTRA\r\n\r\n", 400),
+            (
+                "POST /api/settings HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+                501,
+            ),
         ];
         for (req, want) in cases {
             let mut s = tcp_connect(addr);
@@ -3904,8 +4057,8 @@ mod tests {
         }
 
         // An oversized (>= 16 KB) unterminated head must be bounded, not
-        // buffered without limit. The first line still parses, so it is served
-        // — the point is the server survives and keeps a sane cap.
+        // buffered without limit, and refused: serving it would leave the
+        // unread tail to be parsed as the next request.
         let mut s = tcp_connect(addr);
         s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         s.write_all(b"GET / HTTP/1.1\r\nHost: t\r\nX-Pad: ")
@@ -3913,7 +4066,7 @@ mod tests {
         s.write_all(&[b'a'; 20 * 1024]).unwrap();
         s.flush().unwrap();
         let resp = read_one_response(&mut s);
-        assert_eq!(resp.status, 200, "bounded head should still be served");
+        assert_eq!(resp.status, 431, "oversized head must be refused");
 
         // Abandoned / half-sent connections must release their threads.
         for _ in 0..8 {

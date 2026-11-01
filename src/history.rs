@@ -40,7 +40,7 @@ pub struct HistoryFile {
     path: PathBuf,
     /// Lines kept when trimming: the ring's own window.
     window: usize,
-    /// Lines appended since the last trim.
+    /// Lines counted toward the next trim (the file's own lines at start).
     lines: usize,
     /// Set after the first write failure; the sink then stays quiet instead of
     /// complaining once per sample.
@@ -49,10 +49,15 @@ pub struct HistoryFile {
 
 impl HistoryFile {
     pub fn new(path: PathBuf, window: usize) -> Self {
+        // Count what is already there: starting from 0 on every start meant a
+        // server restarted more often than the trim interval never trimmed.
+        let lines = std::fs::read_to_string(&path)
+            .map(|t| t.lines().count())
+            .unwrap_or(0);
         Self {
             path,
             window: window.max(1),
-            lines: 0,
+            lines,
             dead: false,
         }
     }
@@ -212,6 +217,21 @@ mod tests {
         assert!(lines <= 6, "expected a bounded file, found {lines} lines");
         let rows = h.replay();
         assert_eq!(rows[rows.len() - 1].0, 11.0);
+    }
+
+    #[test]
+    fn restarts_do_not_reset_the_trim() {
+        let path = temp("restart.jsonl");
+        let _ = std::fs::remove_file(&path);
+        // Each "run" appends 2 samples at a window of 3, fewer than the 9 that
+        // trigger a trim; the file must still stay bounded across restarts.
+        for run in 0..20 {
+            let mut h = HistoryFile::new(path.clone(), 3);
+            h.append(run as f32, 0.0, 0.0, 0.0, 0.0);
+            h.append(run as f32, 0.0, 0.0, 0.0, 0.0);
+        }
+        let lines = std::fs::read_to_string(&path).unwrap().lines().count();
+        assert!(lines <= 10, "restarts let the file grow to {lines} lines");
     }
 
     #[test]

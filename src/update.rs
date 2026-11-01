@@ -569,17 +569,15 @@ fn dechunk(mut buf: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn verify_checksum(rel: &Latest, bytes: &[u8]) -> Result<(), String> {
+    // Fail closed: every release publishes SHA256SUMS, so a missing or
+    // unreadable manifest means something is wrong, not "skip the check".
     let Some(url) = &rel.sums_url else {
-        return Ok(()); // no manifest published: proceed
+        return Err("release has no SHA256SUMS; refusing an unverified binary".to_string());
     };
-    let sums = match http_get(url, 30) {
-        Ok(s) => s,
-        Err(_) => return Ok(()), // manifest fetch failed: do not block the update
-    };
+    let sums = http_get(url, 30).map_err(|e| format!("cannot fetch SHA256SUMS: {e}"))?;
     let text = String::from_utf8_lossy(&sums);
-    let want = checksum_for(&text, &rel.asset_url);
-    let Some(want) = want else {
-        return Ok(()); // no line for our asset
+    let Some(want) = checksum_for(&text, &rel.asset_url) else {
+        return Err("SHA256SUMS has no line for this binary; refusing to install".to_string());
     };
     let got = sha256_hex(bytes);
     if got.eq_ignore_ascii_case(&want) {

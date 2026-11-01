@@ -290,6 +290,10 @@ pub enum Section {
         /// Append every sample to this file as JSON lines (survives a restart)
         #[arg(long, value_name = "FILE")]
         history_file: Option<PathBuf>,
+        /// Public read-only dashboard: no token to read, settings/keys/update
+        /// refused, listening ports and process owners left out
+        #[arg(long)]
+        public: bool,
     },
     /// Manage dashboard access keys (add, remove, expiry)
     Key {
@@ -417,6 +421,7 @@ fn main() {
             cors,
             qr,
             history_file,
+            public,
         }) => {
             let alerts = serve::AlertConfig {
                 cpu: alert_cpu,
@@ -444,6 +449,7 @@ fn main() {
                 cors,
                 qr,
                 history_file,
+                public,
             );
             return;
         }
@@ -566,6 +572,7 @@ fn run_serve(
     cors: bool,
     qr: bool,
     history_file: Option<PathBuf>,
+    public: bool,
 ) {
     let settings_path = paths::settings_file();
     let stored = settings::Settings::load(&settings_path);
@@ -605,6 +612,7 @@ fn run_serve(
         cors,
         qr,
         history_file,
+        public,
     };
     if let Err(e) = serve::run(cfg) {
         eprintln!("sysview serve: {e}");

@@ -301,6 +301,11 @@ table.sp-keys td { border-bottom:1px solid #21262d; padding:4px 6px; }
 .sp-row { margin:6px 0; }
 .sp-inline { display:inline-block; margin-right:10px; }
 body.kiosk #settingsPanel { cursor:auto; }
+/* public read-only dashboard (serve --public): no settings, no owners */
+.public-only { display:none; }
+body.public .public-only { display:inline; }
+body.public #settingsBtn, body.public #settingsPanel,
+body.public #procTable th:nth-child(3), body.public #procTable td:nth-child(3) { display:none; }
 
 /* ---- legacy retro (Windows-95 look) theme ----
    Pure CSS class on <html>; modern UI stays the default. Uses only old-browser
@@ -650,6 +655,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
   &middot; <span id="markInfo" class="dim"></span>
   &middot; <span class="hint dim">press <b>F</b> fullscreen, <b>K</b> kiosk, <b>M</b> mark, <b>Shift+M</b> clear marks, <b>Esc</b> leave kiosk</span>
   &middot; <a class="credit" href="https://ndcompany.in" target="_blank" rel="noopener">a N&amp;D Co tool</a>
+  <span class="public-only">&middot; live demo, read-only &middot; <a class="credit" href="https://github.com/OCEANOFANYTHING/sysview" target="_blank" rel="noopener">free and open source: run it on your server</a></span>
 </div>
 
 <script>
@@ -661,6 +667,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
   var POLL = 2000;                 /* default ms; overridden by server? */
   var MAXHIST = 240;               /* samples kept for charts */
   var OFFLINE_RETRY = 3000;
+  var fails = 0, warm = 0;
   var inited = false;
   var timer = null;                /* poll timer */
   var paused = false;
@@ -717,7 +724,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
   function esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
   function iec(n) {
     if (n == null || isNaN(n)) return "-";
@@ -1324,6 +1331,11 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
           + "<canvas id='ift" + i + "' class='mini-spark' width='64' height='9'></canvas></span></td></tr>";
     }
     $("netBody").innerHTML = nh;
+    /* forget interfaces that went away (container veths come and go), or a
+       tab left open for weeks keeps every one it ever saw */
+    var live = {};
+    for (i = 0; i < nets.length; i++) live[nets[i].name] = 1;
+    for (var nm in ifaceHist) { if (ifaceHist.hasOwnProperty(nm) && !live[nm]) delete ifaceHist[nm]; }
     for (i = 0; i < nets.length; i++) {
       var irec = ifaceHist[nets[i].name];
       if (!irec) continue;
@@ -1499,11 +1511,13 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
     x.onreadystatechange = function () {
       if (x.readyState !== 4) return;
       if (x.status === 200) {
+        fails = 0; warm = 0;
         try { render(JSON.parse(x.responseText)); setStatus(true); schedule(); }
         catch (e) { setStatus(false); schedule(true); }
-      } else if (x.status === 503) {
+      } else if (x.status === 503 && ++warm < 6) {
         /* server was idle and is warming up again: retry fast, and don't
-           flash the offline banner for a brief warm-up window */
+           flash the offline banner for a brief warm-up window (a 503 that
+           lasts longer than that is shown as an outage) */
         schedule(1500);
       } else {
         setStatus(false);
@@ -1516,7 +1530,9 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
   }
   function schedule(retry) {
     var ms = timems();
-    if (retry === true) { ms = OFFLINE_RETRY; }
+    /* back off while the server is down (3s doubling to 30s, jittered) so
+       every open tab doesn't hit it at once when it comes back */
+    if (retry === true) { fails++; ms = Math.min(30000, OFFLINE_RETRY * Math.pow(2, fails - 1)) * (0.8 + Math.random() * 0.4); }
     else if (typeof retry === "number") { ms = retry; }
     if (timer) { clearTimeout(timer); timer = null; }
     timer = setTimeout(poll, ms);
@@ -2021,7 +2037,7 @@ html.legacy .sp-token { background:#ffffff; border:1px solid #808080; color:#000
       rt = setTimeout(fitAllCanvases, 200);
     });
     document.addEventListener("visibilitychange", function () {
-      if (!document.hidden && !paused) poll();
+      if (!document.hidden && !paused) { if (timer) { clearTimeout(timer); timer = null; } poll(); }
     });
     kioskOnBoot();
     kioskWake();

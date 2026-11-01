@@ -63,6 +63,7 @@ platform's file from the [Releases] page and run it directly:
 |---|---|
 | Windows | `sysview-windows-x86_64.exe` |
 | Linux (any distro, incl. servers) | `sysview-linux-x86_64-musl` (fully static) |
+| Linux on ARM (Graviton, Ampere, Raspberry Pi on a 64-bit OS) | `sysview-linux-aarch64-musl` (fully static) |
 | macOS (Intel + Apple Silicon) | `sysview-mac-universal` |
 
 ```bash
@@ -433,6 +434,29 @@ sysview serve --bind 0.0.0.0 --token "$TOKEN" --cors
 ride the query string so the browser sends no preflight. Leave it off unless you
 need it.
 
+### Public read-only dashboard
+
+`--public` turns the dashboard into something you can put on the open internet
+(a status page, a live demo):
+
+```bash
+sysview serve --public --port 8097 --history-file /var/lib/sysview/history.jsonl
+```
+
+- Reading needs no token: the page, `/api/snapshot`, `/api/history`,
+  `/metrics` and `/health` are open to anyone.
+- Nothing can be changed. `/api/settings`, `/api/interfaces`, the key routes,
+  `/api/update`, `/api/restart` and every `POST` answer `403`, and no token
+  reopens them. Administer the host from its shell instead.
+- The snapshot leaves out listening ports and process owners, and the page
+  hides the settings button and the User column.
+
+Process names, mounts, interfaces and the hostname stay visible, because that
+is what the dashboard is for. Keep the server on loopback and publish it through
+a reverse proxy or tunnel that adds TLS and rate limits;
+[server.ndcompany.in](https://server.ndcompany.in) runs exactly this behind a
+Cloudflare Tunnel.
+
 ### Self-update
 
 ```bash
@@ -594,6 +618,7 @@ so they are never pinned in this doc.
 | `--qr` | Print a scannable QR code for the dashboard URL (token included when set) after the banner |
 | `--token <secret>` | Require `?token=<secret>` or `Authorization: Bearer`. Also accepted from `SYSVIEW_TOKEN` / `SYSVIEW_KEYS`, the keys file, or the dashboard Settings panel |
 | `--kiosk` | Start in kiosk mode (fullscreen, minimal chrome) |
+| `--public` | Public read-only dashboard: no token to read, every admin route refused, listening ports and process owners left out ([details](#public-read-only-dashboard)) |
 
 ## Notes
 

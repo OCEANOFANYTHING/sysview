@@ -51,6 +51,26 @@ jobs:
           name: linux
           path: sysview-linux-x86_64-musl
 
+  # ARM servers and boards (Oracle Ampere, Graviton, Raspberry Pi 4/5 on a
+  # 64-bit OS). Built natively on GitHub's ARM runner; `sysview update` already
+  # asks for this asset name on aarch64 Linux.
+  build-linux-arm:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target aarch64-unknown-linux-musl
+      - run: cp target/aarch64-unknown-linux-musl/release/sysview sysview-linux-aarch64-musl
+      - run: file sysview-linux-aarch64-musl
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: linux-arm
+          path: sysview-linux-aarch64-musl
+
   build-windows:
     needs: test
     runs-on: windows-latest
@@ -81,21 +101,22 @@ jobs:
           path: sysview-mac-universal
 
   release:
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-linux-arm, build-windows, build-macos]
     # Only publish a real release for tag pushes; manual runs just build
     # artifacts for testing.
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: artifacts
       - run: |
           mv artifacts/linux/sysview-linux-x86_64-musl .
+          mv artifacts/linux-arm/sysview-linux-aarch64-musl .
           mv artifacts/windows/sysview-windows-x86_64.exe .
           mv artifacts/macos/sysview-mac-universal .
-          sha256sum sysview-linux-x86_64-musl sysview-windows-x86_64.exe sysview-mac-universal > SHA256SUMS
+          sha256sum sysview-linux-x86_64-musl sysview-linux-aarch64-musl sysview-windows-x86_64.exe sysview-mac-universal > SHA256SUMS
           cat SHA256SUMS
       - name: Compose release notes from CHANGELOG
         run: |
@@ -116,6 +137,7 @@ jobs:
         with:
           files: |
             sysview-linux-x86_64-musl
+            sysview-linux-aarch64-musl
             sysview-windows-x86_64.exe
             sysview-mac-universal
             SHA256SUMS
